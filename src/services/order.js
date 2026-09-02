@@ -33,12 +33,13 @@ async function createOrder({ userId, buyerSkuCode, customerNo }) {
   const totalBayar = Number(product.harga_jual) + kodeUnik;
   const expiredAt = new Date(Date.now() + config.app.orderExpiryMinutes * 60 * 1000);
 
+  const provider = providerRouter.currentProvider();
   const orderRes = await db.query(
     `INSERT INTO orders
-      (ref_id, user_id, buyer_sku_code, customer_no, harga_jual, kode_unik, total_bayar, status, expired_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'pending_payment',$8)
-     RETURNING *`,
-    [refId, userId, buyerSkuCode, customerNo, product.harga_jual, kodeUnik, totalBayar, expiredAt]
+      (ref_id, user_id, buyer_sku_code, customer_no, harga_jual, kode_unik, total_bayar, status, expired_at, provider, payment_source)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'pending_payment',$8,$9,'qris')
+      RETURNING *`,
+    [refId, userId, buyerSkuCode, customerNo, product.harga_jual, kodeUnik, totalBayar, expiredAt, provider]
   );
   const order = orderRes.rows[0];
 
@@ -71,12 +72,14 @@ async function applyDigiflazzResult(orderId, result) {
   if (orderRes.rows.length === 0) throw new Error(`Order ${orderId} tidak ditemukan`);
   const order = orderRes.rows[0];
 
+  // Simpan juga provider_trx_id jika ada (TokoVoucher kasih trx_id)
+  const trxId = result.trx_id || result.trxId || null;
   const res = await db.query(
     `UPDATE orders
-     SET status = $1, digiflazz_status = $2, digiflazz_sn = $3, updated_at = now()
-     WHERE id = $4
+     SET status = $1, digiflazz_status = $2, digiflazz_sn = $3, provider_trx_id = COALESCE($4, provider_trx_id), updated_at = now()
+     WHERE id = $5
      RETURNING *`,
-    [finalStatus, result.status, result.sn || null, orderId]
+    [finalStatus, result.status, result.sn || null, trxId, orderId]
   );
   const updated = res.rows[0];
 
@@ -135,12 +138,13 @@ async function createOrderViaSaldo({ userId, buyerSkuCode, customerNo }) {
   const refId = generateRefId();
   const kodeUnik = 0;
 
-  // Insert order dengan payment_source saldo
+  // Insert order dengan payment_source saldo + provider aktif
+  const providerSaldo = providerRouter.currentProvider();
   const orderRes = await db.query(
-    `INSERT INTO orders (ref_id, user_id, buyer_sku_code, customer_no, harga_jual, kode_unik, total_bayar, status, expired_at, payment_source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'processing', now() + interval '1 day', 'saldo')
-     RETURNING *`,
-    [refId, userId, buyerSkuCode, customerNo, hargaJual, kodeUnik, totalBayar]
+    `INSERT INTO orders (ref_id, user_id, buyer_sku_code, customer_no, harga_jual, kode_unik, total_bayar, status, expired_at, payment_source, provider)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'processing', now() + interval '1 day', 'saldo', $8)
+      RETURNING *`,
+    [refId, userId, buyerSkuCode, customerNo, hargaJual, kodeUnik, totalBayar, providerSaldo]
   );
   const order = orderRes.rows[0];
 

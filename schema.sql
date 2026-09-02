@@ -53,6 +53,8 @@ CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 -- Kolom tambahan untuk refund (idempotent, cek existence sebelum update)
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_source VARCHAR(16) NOT NULL DEFAULT 'qris'; -- qris | saldo
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'digiflazz';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS provider_trx_id VARCHAR(64);
 
 -- satu order bisa punya beberapa payment attempt (misal QRIS expired lalu generate ulang)
 CREATE TABLE IF NOT EXISTS payments (

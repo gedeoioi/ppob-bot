@@ -88,18 +88,24 @@ function createWebhookApp({ onOrderSuccess, onOrderFailed } = {}) {
         trx_id: trx_id || '',
       };
       // Cari order berdasarkan ref_id
-      const orderRes = await db.query('SELECT id FROM orders WHERE ref_id = $1', [refId]);
+      const orderRes = await db.query('SELECT id, status FROM orders WHERE ref_id = $1', [refId]);
       if (orderRes.rows.length === 0) {
         req.log.warn({ refId }, '[webhook/tokovoucher] order tidak ditemukan');
         return;
       }
       const orderId = orderRes.rows[0].id;
 
-      // Idempotent: jika sudah bukan Pending/processing, skip
-      const cur = await db.query('SELECT status, digiflazz_status FROM orders WHERE id=$1', [orderId]);
-      if (cur.rows[0] && cur.rows[0].status !== 'processing' && cur.rows[0].digiflazz_status !== 'Pending') {
-        req.log.info({ refId, curStatus: cur.rows[0].status }, '[webhook/tokovoucher] skip, bukan pending');
+      // Idempotent yang benar: selama order masih processing, webhook berhak finalisasi.
+      // Sebelumnya cek digiflazz_status === 'Pending' terlalu ketat untuk TokoVoucher (webhook bisa datang sebelum polling sempat set Pending).
+      // Cukup cek status === 'processing' — jika sudah success/failed/expired, skip.
+      const cur = await db.query('SELECT status, digiflazz_status, provider FROM orders WHERE id=$1', [orderId]);
+      if (cur.rows[0] && cur.rows[0].status !== 'processing') {
+        req.log.info({ refId, curStatus: cur.rows[0].status }, '[webhook/tokovoucher] skip, status bukan processing');
         return;
+      }
+      // Provider mismatch warning (order lama digiflazz tapi webhook tokovoucher) — tetap proses karena ref_id valid
+      if (cur.rows[0] && cur.rows[0].provider && cur.rows[0].provider !== 'tokovoucher') {
+        req.log.warn({ refId, provider: cur.rows[0].provider }, '[webhook/tokovoucher] provider mismatch, tetap proses');
       }
 
       const orderService = require('./services/order');

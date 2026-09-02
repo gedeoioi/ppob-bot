@@ -121,7 +121,14 @@ async function topup({ orderId, refId, buyerSkuCode, customerNo, serverId = '' }
   // Normalisasi ke format Digiflazz { status: Sukses/Gagal/Pending, sn, message, ... }
   // TokoVoucher: status = sukses/gagal/pending (lowercase)
   if (raw.status === 0 || raw.error_msg) {
-    // Signature invalid / Ip Not Allow — treat as Gagal agar bisa retry manual, tapi log jelas
+    const msg = String(raw.error_msg || '');
+    const low = msg.toLowerCase();
+    // Transient: rate limit — anggap Pending agar polling ulang, bukan Failed
+    if (low.includes('limitasi') || low.includes('limit') || low.includes('terlalu') || low.includes('coba')) {
+      console.warn('[tokovoucher:topup] rate limit, dianggap Pending:', msg);
+      return { status: 'Pending', sn: '', message: msg, ref_id: refId, trx_id: '', raw };
+    }
+    // Signature/IP — permanent Gagal agar refund & admin tau
     throw new Error(`TokoVoucher error: ${raw.error_msg || JSON.stringify(raw)}`);
   }
   const mapped = mapStatus(raw);
@@ -159,6 +166,12 @@ async function checkStatus({ orderId, refId }) {
   });
 
   if (raw.status === 0 || raw.error_msg) {
+    const msg = String(raw.error_msg || '');
+    const low = msg.toLowerCase();
+    if (low.includes('limitasi') || low.includes('limit') || low.includes('coba')) {
+      console.warn('[tokovoucher:checkStatus] rate limit, dianggap Pending:', msg);
+      return { status: 'Pending', sn: '', message: msg, ref_id: refId, trx_id: '', raw };
+    }
     throw new Error(`TokoVoucher cek status error: ${raw.error_msg || JSON.stringify(raw)}`);
   }
   return mapStatus(raw);

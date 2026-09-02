@@ -112,7 +112,7 @@ async function sendProdukPage(ctx, page = 0) {
   const countRes = await db.query('SELECT COUNT(*)::int as total FROM products WHERE is_active = true');
   const total = countRes.rows[0].total;
   if (total === 0) {
-    await ctx.reply('Belum ada produk tersedia. Admin belum sync produk dari Digiflazz.');
+    await ctx.reply('Belum ada produk tersedia. Admin belum sync produk.');
     return;
   }
   const totalPages = Math.ceil(total / PRODUK_PER_PAGE);
@@ -124,19 +124,28 @@ async function sendProdukPage(ctx, page = 0) {
     [PRODUK_PER_PAGE, page * PRODUK_PER_PAGE]
   );
 
+  // Urutan kategori sinkron dengan sync-tokovoucher & sendKategoriMenu
+  const ORDER = ['🎮 Topup Game','🎮 Voucher Game','📱 Pulsa','📶 Paket Data','⚡ PLN','💳 E-Wallet','🧾 Tagihan','🧾 Pascabayar','📺 TV & Hiburan','🌏 Topup Luar Negeri','📦 Lainnya','Lainnya'];
+  const orderIdx = (k) => { const i = ORDER.indexOf(k); return i === -1 ? 999 : i; };
+  // Group lalu sort group sesuai ORDER
   const groups = new Map();
   for (const p of res.rows) {
-    const kat = p.kategori || 'Lainnya';
+    const kat = p.kategori || '📦 Lainnya';
     if (!groups.has(kat)) groups.set(kat, []);
     groups.get(kat).push(p);
   }
+  const sortedGroups = [...groups.entries()].sort((a,b) => {
+    const oa = orderIdx(a[0]), ob = orderIdx(b[0]);
+    if (oa !== ob) return oa - ob;
+    return a[0].localeCompare(b[0]);
+  });
 
   const keyboard = new InlineKeyboard();
-  let firstGroup = true;
-  for (const [kategori, items] of groups) {
-    if (!firstGroup) {}
-    firstGroup = false;
-    keyboard.text(`── ${kategori} ──`, 'noop').row();
+  for (const [kategori, items] of sortedGroups) {
+    // Ganti prefix "──" dengan format yang sudah ada emoji dari kategori itu sendiri
+    keyboard.text(`──── ${kategori} ────`, 'noop').row();
+    // Sort produk dalam kategori by harga termurah dulu agar rapi
+    items.sort((a,b) => Number(a.harga_jual) - Number(b.harga_jual));
     for (let i = 0; i < items.length; i += 2) {
       const a = items[i];
       const b = items[i + 1];
@@ -176,19 +185,31 @@ async function sendProdukPage(ctx, page = 0) {
 
 async function sendKategoriMenu(ctx) {
   const res = await db.query(
-    "SELECT DISTINCT kategori FROM products WHERE is_active = true AND kategori IS NOT NULL AND kategori <> '' ORDER BY kategori"
+    "SELECT kategori, COUNT(*)::int AS cnt FROM products WHERE is_active = true AND kategori IS NOT NULL AND kategori <> '' GROUP BY kategori"
   );
   if (res.rows.length === 0) return ctx.reply('Belum ada kategori.');
+
+  // Urutan rapi sinkron dengan sync-tokovoucher: game dulu, baru pulsa/data, lalu utilitas
+  const ORDER = ['🎮 Topup Game','🎮 Voucher Game','📱 Pulsa','📶 Paket Data','⚡ PLN','💳 E-Wallet','🧾 Tagihan','🧾 Pascabayar','📺 TV & Hiburan','🌏 Topup Luar Negeri','📦 Lainnya','Lainnya'];
+  const orderIdx = (k) => { const i = ORDER.indexOf(k); return i === -1 ? 999 : i; };
+  const sorted = [...res.rows].sort((a,b) => {
+    const oa = orderIdx(a.kategori), ob = orderIdx(b.kategori);
+    if (oa !== ob) return oa - ob;
+    return a.kategori.localeCompare(b.kategori);
+  });
+
   const kb = new InlineKeyboard();
-  for (let i = 0; i < res.rows.length; i += 2) {
-    const a = res.rows[i];
-    const b = res.rows[i + 1];
-    kb.text(`📂 ${a.kategori}`, `kategori:${a.kategori}`);
-    if (b) kb.text(`📂 ${b.kategori}`, `kategori:${b.kategori}`);
+  for (let i = 0; i < sorted.length; i += 2) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    // Tampilkan kategori apa adanya (sudah ada emoji dari sync-tokovoucher) + badge jumlah
+    kb.text(`${a.kategori} (${a.cnt})`, `kategori:${a.kategori}`);
+    if (b) kb.text(`${b.kategori} (${b.cnt})`, `kategori:${b.kategori}`);
     kb.row();
   }
   kb.text('⬅️ Semua Produk', 'produk_page:0').text('❌ Tutup', 'close_menu');
-  const text = '📂 *Pilih Kategori*';
+  const totalProduk = sorted.reduce((s,r)=>s+r.cnt,0);
+  const text = `📂 *Pilih Kategori* — ${sorted.length} kategori, ${totalProduk} produk aktif`;
   if (ctx.callbackQuery) {
     try { await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: kb }); await ctx.answerCallbackQuery(); return; } catch (_) {}
   }
@@ -197,7 +218,7 @@ async function sendKategoriMenu(ctx) {
 
 async function sendProdukByKategori(ctx, kategori) {
   const res = await db.query(
-    'SELECT buyer_sku_code, nama, harga_jual FROM products WHERE is_active = true AND kategori = $1 ORDER BY nama LIMIT 20',
+    'SELECT buyer_sku_code, nama, harga_jual FROM products WHERE is_active = true AND kategori = $1 ORDER BY harga_jual ASC, nama ASC LIMIT 24',
     [kategori]
   );
   if (res.rows.length === 0) return ctx.reply(`Kategori "${kategori}" kosong.`);
@@ -214,7 +235,7 @@ async function sendProdukByKategori(ctx, kategori) {
     kb.row();
   }
   kb.text('⬅️ Kategori', 'show_kategori').text('⬅️ Semua', 'produk_page:0');
-  const text = `📂 *${kategori}* — ${res.rows.length} produk`;
+  const text = `${escapeMarkdown(kategori)} — ${res.rows.length} produk (urut termurah)`;
   try { await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: kb }); await ctx.answerCallbackQuery(); } catch (_) {
     await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: kb });
   }
@@ -337,6 +358,7 @@ bot.command('bantuan', async (ctx) => {
   );
 });
 bot.command('help', async (ctx) => ctx.reply('Gunakan /bantuan untuk panduan.'));
+bot.command('status', async (ctx) => { await sendStatusHelp(ctx); });
 
 bot.command('batal', async (ctx) => {
   ctx.session.pendingSku = null;
@@ -787,6 +809,21 @@ async function notifyOrderResult(order) {
   } catch (err) {
     logger.error({ err: err.message, orderId: order?.id }, '[bot:notify] gagal kirim notifikasi');
   }
+}
+
+async function sendStatusHelp(ctx) {
+  const provider = require('./services/provider').currentProvider();
+  const providerNote = provider === 'tokovoucher'
+    ? 'Provider aktif: *TokoVoucher* — polling tiap 10 menit, webhook akan finalisasi otomatis. Jika saldo TokoVoucher tipis, transaksi bisa Pending lama.'
+    : 'Provider aktif: *Digiflazz* — polling tiap 2 menit.';
+  await ctx.reply(
+    `ℹ️ *Status Transaksi*\n\n` +
+    `${providerNote}\n\n` +
+    `• *Pending/Pending* = masih diproses provider, tunggu notifikasi atau polling otomatis.\n` +
+    `• Jika order via *Saldo* gagal, dana otomatis refund (cek /mutasi).\n` +
+    `• Jika order via *QRIS* Pending lama (>15 menit), hubungi admin dengan ref_id.`,
+    { parse_mode: 'Markdown' }
+  );
 }
 
 async function notifyTopupSuccess(topup, newSaldo) {

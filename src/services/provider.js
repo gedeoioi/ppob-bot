@@ -17,4 +17,10 @@ function currentProvider() {
   return (config.transactionProvider || 'digiflazz').toLowerCase();
 }
 
-module.exports = { getProviderService, currentProvider };
+function getProviderServiceForOrder(order) {
+  // Per-order provider disimpan di orders.provider; fallback ke global jika kosong (order lama)
+  const p = (order && order.provider ? String(order.provider) : currentProvider()).toLowerCase();
+  return getProviderService(p);
+}
+
+module.exports = { getProviderService, currentProvider, getProviderServiceForOrder };
