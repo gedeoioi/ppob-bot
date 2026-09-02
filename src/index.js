@@ -89,7 +89,18 @@ async function main() {
   bot.start({
     onStart: (info) => logger.info({ bot: info.username }, '[bot] Telegram bot running (long polling)'),
   }).catch((err) => {
-    logger.fatal({ err: err.message }, '[bot] failed to start');
+    const msg = err.message || String(err);
+    // 404 getMe hampir selalu = token salah / belum diisi / direvoke
+    if (msg.includes('404') || msg.includes('getMe') || msg.includes('Not Found')) {
+      logger.fatal(
+        '[bot] gagal start: Telegram mengembalikan 404 Not Found saat getMe. ' +
+          'Penyebab paling umum: TELEGRAM_BOT_TOKEN di .env masih placeholder "isi_token_botfather", salah ketik, atau token sudah direvoke. ' +
+          'Ambil token baru dari @BotFather -> /mybots -> pilih bot -> API Token, lalu isi TELEGRAM_BOT_TOKEN di .env dengan format 123456789:AAH...',
+      );
+      logger.fatal({ err: msg }, '[bot] detail error getMe');
+    } else {
+      logger.fatal({ err: msg, stack: err.stack }, '[bot] failed to start');
+    }
     process.exit(1);
   });
 }

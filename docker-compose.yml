@@ -41,9 +41,8 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
-      # DATABASE_URL and REDIS_URL should be set in .env to point to service names when using compose:
-      # DATABASE_URL=postgres://ppob_user:password@postgres:5432/ppob_bot
-      # REDIS_URL=redis://:password@redis:6379  (or redis://redis:6379 if no password)
+      DATABASE_URL: postgres://${POSTGRES_USER:-ppob_user}:${POSTGRES_PASSWORD:-test123}@postgres:5432/${POSTGRES_DB:-ppob_bot}
+      REDIS_URL: redis://redis:6379
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
     healthcheck:

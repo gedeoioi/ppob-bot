@@ -3,10 +3,18 @@ const crypto = require('crypto');
 const config = require('../config');
 const db = require('../db');
 
-const { username, apiKey, baseUrl } = config.digiflazz;
-
 function md5(str) {
   return crypto.createHash('md5').update(str).digest('hex');
+}
+
+function getCreds() {
+  // Baca fresh dari config tiap request — cegah stale setelah rotasi kredensial + restart
+  // Trim untuk hindari spasi/newline yang sering kebawa dari copy-paste dashboard
+  return {
+    username: String(config.digiflazz.username).trim(),
+    apiKey: String(config.digiflazz.apiKey).trim(),
+    baseUrl: String(config.digiflazz.baseUrl).trim(),
+  };
 }
 
 /**
@@ -15,6 +23,7 @@ function md5(str) {
  * supaya tidak membebani API dan supaya harga_jual di DB tetap konsisten.
  */
 async function getPriceList() {
+  const { username, apiKey, baseUrl } = getCreds();
   const sign = md5(`${username}${apiKey}pricelist`);
   const { data } = await axios.post(`${baseUrl}/price-list`, {
     cmd: 'prepaid',
@@ -33,6 +42,7 @@ async function getPriceList() {
  * - Jangan panggil ulang untuk refId yang sama dalam interval < 1 menit.
  */
 async function topup({ orderId, refId, buyerSkuCode, customerNo }) {
+  const { username, apiKey, baseUrl } = getCreds();
   const sign = md5(`${username}${apiKey}${refId}`);
   const payload = {
     username,
@@ -79,6 +89,7 @@ async function topup({ orderId, refId, buyerSkuCode, customerNo }) {
  * mereka akan balas status TERBARU tanpa membuat transaksi baru/dobel charge.
  */
 async function checkStatus({ orderId, refId, buyerSkuCode, customerNo }) {
+  const { username, apiKey, baseUrl } = getCreds();
   const sign = md5(`${username}${apiKey}${refId}`);
   const payload = {
     username,

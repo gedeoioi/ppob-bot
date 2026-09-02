@@ -37,10 +37,26 @@ function validateProdSafety(cfg) {
   if (errs.length) throw new Error('Config production tidak aman:\n- ' + errs.join('\n- '));
 }
 
+function validateTelegramToken(token) {
+  if (/^isi[_-]/i.test(token) || token.toLowerCase().includes('isi_token')) {
+    throw new Error(
+      'TELEGRAM_BOT_TOKEN masih placeholder "isi_token_botfather". Ganti dengan token asli dari @BotFather (contoh: 1234567890:AAH...).'
+    );
+  }
+  if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) {
+    throw new Error(
+      'Format TELEGRAM_BOT_TOKEN tidak valid. Harus seperti "1234567890:AAH..." dari @BotFather. Cek kembali .env.'
+    );
+  }
+}
+
+const rawTelegramToken = required('TELEGRAM_BOT_TOKEN');
+validateTelegramToken(rawTelegramToken);
+
 const cfg = {
   env: nodeEnv,
   isProd,
-  telegramToken: required('TELEGRAM_BOT_TOKEN'),
+  telegramToken: rawTelegramToken,
   databaseUrl: required('DATABASE_URL'),
   redisUrl: optional('REDIS_URL', 'redis://localhost:6379'),
 
