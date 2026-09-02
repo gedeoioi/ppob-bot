@@ -82,6 +82,10 @@ function formatRupiah(n) {
   return `Rp${Number(n).toLocaleString('id-ID')}`;
 }
 
+function escapeMarkdown(s) {
+  return String(s).replace(/([_*`\[\]])/g, '\\$&');
+}
+
 function parseRupiahInput(s) {
   // Terima "50000", "50k", "50.000", "Rp 50.000"
   let t = s.toLowerCase().replace(/rp/gi, '').replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '');
@@ -218,14 +222,17 @@ async function sendSaldoInfo(ctx) {
 
   let text = `💰 *Saldo Kamu:* ${formatRupiah(saldo)}\n`;
   if (pendingTopup.rows.length) {
-    text += `\n⏳ Topup pending: ${pendingTopup.rows[0].ref_id} ${formatRupiah(pendingTopup.rows[0].total_bayar)} (menunggu pembayaran QRIS)`;
+    text += `\n⏳ Topup pending: ${escapeMarkdown(pendingTopup.rows[0].ref_id)} ${formatRupiah(pendingTopup.rows[0].total_bayar)} (menunggu pembayaran QRIS)`;
   }
   text += `\n\n📒 *5 Mutasi Terakhir:*\n`;
   if (mutasi.length === 0) text += '_Belum ada mutasi_';
   else {
     for (const m of mutasi) {
       const sign = m.amount > 0 ? '+' : '';
-      text += `${new Date(m.created_at).toLocaleString('id-ID')} | ${sign}${formatRupiah(m.amount)} | ${m.reason} ${m.description ? '- ' + m.description : ''}\n`;
+      // escape reason & description agar "_" di order_payment tidak dianggap markdown italic
+      const reasonSafe = escapeMarkdown(m.reason);
+      const descSafe = m.description ? ' - ' + escapeMarkdown(m.description) : '';
+      text += `${new Date(m.created_at).toLocaleString('id-ID')} | ${sign}${formatRupiah(m.amount)} | ${reasonSafe}${descSafe}\n`;
     }
   }
   text += `\nGunakan /topup untuk isi saldo atau tombol ➕ Topup di bawah.`;
