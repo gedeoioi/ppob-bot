@@ -1,24 +1,28 @@
 const { Pool } = require('pg');
 const config = require('../config');
 
-const pool = new Pool({ connectionString: config.databaseUrl });
+const pool = new Pool({
+  connectionString: config.databaseUrl,
+  max: parseInt(process.env.PG_POOL_MAX || '10', 10),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+  // Enable SSL when DATABASE_URL points to managed Postgres (e.g. Neon/Supabase) or when PGSSLMODE=require
+  ssl:
+    process.env.PGSSLMODE === 'require' || config.databaseUrl.includes('sslmode=require')
+      ? { rejectUnauthorized: false }
+      : undefined,
+  application_name: 'ppob-bot',
+});
 
 pool.on('error', (err) => {
   // Jangan biarkan koneksi idle yang error mematikan seluruh proses bot
-  console.error('[db] Unexpected error on idle client', err);
+  console.error('[db] Unexpected error on idle client', err.message);
 });
 
-/**
- * Query sederhana. Untuk transaksi (butuh BEGIN/COMMIT) gunakan withTransaction().
- */
 async function query(text, params) {
   return pool.query(text, params);
 }
 
-/**
- * Helper transaksi DB - WAJIB dipakai untuk operasi yang menyentuh saldo/order
- * supaya tidak ada race condition (misal: cek saldo lalu potong saldo harus atomik).
- */
 async function withTransaction(fn) {
   const client = await pool.connect();
   try {
@@ -34,4 +38,12 @@ async function withTransaction(fn) {
   }
 }
 
-module.exports = { pool, query, withTransaction };
+async function checkHealth() {
+  await pool.query('SELECT 1');
+}
+
+async function close() {
+  await pool.end();
+}
+
+module.exports = { pool, query, withTransaction, checkHealth, close };

@@ -3,12 +3,10 @@ const db = require('../db');
 const { acquireLock, releaseLock } = require('../db/redis');
 const digiflazz = require('../services/digiflazz');
 const orderService = require('../services/order');
+const logger = require('../logger');
 
-/**
- * Cari order yang statusnya masih 'pending_payment' tapi sudah lewat expired_at,
- * lalu ubah jadi 'expired'. Ini yang bikin kode_unik order lama bisa "dipakai ulang"
- * secara alami oleh order baru (karena keduanya digenerate random 1-900).
- */
+const tasks = [];
+
 async function expireOrders() {
   const res = await db.query(
     `UPDATE orders SET status = 'expired', updated_at = now()
@@ -17,10 +15,7 @@ async function expireOrders() {
   );
 
   if (res.rows.length > 0) {
-    console.log(`[cron:expire] ${res.rows.length} order kedaluwarsa diubah jadi 'expired':`,
-      res.rows.map((o) => o.ref_id).join(', '));
-
-    // Payment terkait juga ditandai expired biar konsisten
+    logger.info({ count: res.rows.length, refIds: res.rows.map((o) => o.ref_id) }, '[cron:expire] orders expired');
     const orderIds = res.rows.map((o) => o.id);
     await db.query(
       `UPDATE payments SET status = 'expired' WHERE order_id = ANY($1) AND status = 'pending'`,
@@ -29,15 +24,6 @@ async function expireOrders() {
   }
 }
 
-/**
- * Cari order yang statusnya 'processing' dengan digiflazz_status 'Pending',
- * lalu cek ulang statusnya ke Digiflazz. Hanya proses order yang SUDAH LEBIH
- * DARI 1 MENIT sejak update terakhir, sesuai anjuran Digiflazz supaya tidak
- * dianggap spam request untuk ref_id yang sama.
- *
- * @param {(order: object) => Promise<void>} onOrderFinalized - callback dipanggil
- *   saat status order berubah jadi final (success/failed), misal untuk notifikasi Telegram.
- */
 async function pollPendingDigiflazzOrders(onOrderFinalized) {
   const res = await db.query(
     `SELECT * FROM orders
@@ -48,12 +34,10 @@ async function pollPendingDigiflazzOrders(onOrderFinalized) {
   );
 
   if (res.rows.length === 0) return;
-  console.log(`[cron:poll-status] Mengecek ulang ${res.rows.length} order berstatus Pending...`);
+  logger.info({ count: res.rows.length }, '[cron:poll-status] checking pending orders');
 
   for (const order of res.rows) {
     const lockKey = `lock:order:${order.ref_id}`;
-    // Pakai lock yang sama dengan handlePaymentPaid supaya tidak race
-    // kalau kebetulan callback Digiflazz datang bersamaan dengan polling ini.
     const gotLock = await acquireLock(lockKey, 15000);
     if (!gotLock) continue;
 
@@ -68,34 +52,36 @@ async function pollPendingDigiflazzOrders(onOrderFinalized) {
       const updatedOrder = await orderService.applyDigiflazzResult(order.id, result);
 
       if (updatedOrder.status !== 'processing') {
-        console.log(`[cron:poll-status] Order ${order.ref_id} -> ${updatedOrder.status}`);
+        logger.info({ refId: order.ref_id, status: updatedOrder.status }, '[cron:poll-status] order finalized');
         if (onOrderFinalized) await onOrderFinalized(updatedOrder);
       }
     } catch (err) {
-      console.error(`[cron:poll-status] Gagal cek status order ${order.ref_id}:`, err.message);
+      logger.error({ err: err.message, refId: order.ref_id }, '[cron:poll-status] check failed');
     } finally {
       await releaseLock(lockKey);
     }
   }
 }
 
-/**
- * Daftarkan semua cron job. Dipanggil sekali saat aplikasi start (lihat src/index.js).
- */
 function startJobs({ onOrderFinalized } = {}) {
-  // Tiap 1 menit: cek order kedaluwarsa
-  cron.schedule('* * * * *', () => {
-    expireOrders().catch((err) => console.error('[cron:expire] error:', err.message));
+  const t1 = cron.schedule('* * * * *', () => {
+    expireOrders().catch((err) => logger.error({ err: err.message }, '[cron:expire] error'));
   });
 
-  // Tiap 2 menit: cek ulang order yang masih Pending di Digiflazz
-  cron.schedule('*/2 * * * *', () => {
+  const t2 = cron.schedule('*/2 * * * *', () => {
     pollPendingDigiflazzOrders(onOrderFinalized).catch((err) =>
-      console.error('[cron:poll-status] error:', err.message)
+      logger.error({ err: err.message }, '[cron:poll-status] error')
     );
   });
 
-  console.log('[cron] Job auto-expire (tiap 1 menit) dan poll-status (tiap 2 menit) aktif.');
+  tasks.push(t1, t2);
+  logger.info('[cron] jobs active: auto-expire (1m) + poll-status (2m)');
 }
 
-module.exports = { startJobs, expireOrders, pollPendingDigiflazzOrders };
+function stopJobs() {
+  for (const t of tasks) t.stop();
+  tasks.length = 0;
+  logger.info('[cron] jobs stopped');
+}
+
+module.exports = { startJobs, stopJobs, expireOrders, pollPendingDigiflazzOrders };

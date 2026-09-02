@@ -2,47 +2,85 @@ require('dotenv').config();
 
 function required(name) {
   const val = process.env[name];
-  if (!val) {
+  if (!val || String(val).trim() === '') {
     throw new Error(`Environment variable ${name} wajib diisi (cek file .env)`);
   }
-  return val;
+  return val.trim();
 }
 
-module.exports = {
+function optional(name, fallback = '') {
+  const v = process.env[name];
+  return v == null || v === '' ? fallback : String(v).trim();
+}
+
+const nodeEnv = optional('NODE_ENV', 'development');
+const isProd = nodeEnv === 'production';
+
+function parsePositiveInt(name, fallback) {
+  const raw = optional(name, String(fallback));
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n) || n <= 0) throw new Error(`Environment variable ${name} harus angka positif (got: ${raw})`);
+  return n;
+}
+
+// Hard guard: prevent leaking sandbox/ngrok into production
+function validateProdSafety(cfg) {
+  if (!isProd) return;
+  const errs = [];
+  if (cfg.digiflazz.testing) errs.push('DIGIFLAZZ_TESTING harus false di production');
+  if (cfg.payment.mock) errs.push('PAYMENT_MOCK harus false di production');
+  if (cfg.payment.duitku.mode !== 'production') errs.push('DUITKU_MODE harus production di production');
+  if (cfg.app.publicBaseUrl.includes('ngrok') || cfg.app.publicBaseUrl.includes('localhost')) {
+    errs.push('PUBLIC_BASE_URL tidak boleh ngrok/localhost di production');
+  }
+  if (cfg.app.orderExpiryMinutes < 5) errs.push('ORDER_EXPIRY_MINUTES minimal 5 di production');
+  if (errs.length) throw new Error('Config production tidak aman:\n- ' + errs.join('\n- '));
+}
+
+const cfg = {
+  env: nodeEnv,
+  isProd,
   telegramToken: required('TELEGRAM_BOT_TOKEN'),
   databaseUrl: required('DATABASE_URL'),
-  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+  redisUrl: optional('REDIS_URL', 'redis://localhost:6379'),
 
   digiflazz: {
     username: required('DIGIFLAZZ_USERNAME'),
     apiKey: required('DIGIFLAZZ_API_KEY'),
-    webhookSecret: process.env.DIGIFLAZZ_WEBHOOK_SECRET || '',
+    webhookSecret: optional('DIGIFLAZZ_WEBHOOK_SECRET', ''),
     baseUrl: 'https://api.digiflazz.com/v1',
-    // true = simulasi (tidak potong saldo asli, respons dummy dari Digiflazz).
-    // WAJIB false lagi sebelum benar-benar live.
-    testing: process.env.DIGIFLAZZ_TESTING === 'true',
+    testing: optional('DIGIFLAZZ_TESTING', 'false') === 'true',
   },
 
   payment: {
-    gateway: process.env.PAYMENT_GATEWAY || 'duitku',
-    // true = tidak benar-benar panggil API Duitku, generate QR dummy lokal.
-    // Berguna untuk testing alur order/topup tanpa perlu akun Duitku dulu.
-    // WAJIB false lagi sebelum benar-benar live (QR dummy tidak bisa dibayar beneran).
-    mock: process.env.PAYMENT_MOCK === 'true',
+    gateway: optional('PAYMENT_GATEWAY', 'duitku'),
+    mock: optional('PAYMENT_MOCK', 'false') === 'true',
     duitku: {
-      merchantCode: process.env.PAYMENT_MOCK === 'true'
-        ? (process.env.DUITKU_MERCHANT_CODE || 'MOCKCODE')
+      merchantCode: optional('PAYMENT_MOCK', 'false') === 'true'
+        ? (optional('DUITKU_MERCHANT_CODE', 'MOCKCODE'))
         : required('DUITKU_MERCHANT_CODE'),
-      merchantKey: process.env.PAYMENT_MOCK === 'true'
-        ? (process.env.DUITKU_MERCHANT_KEY || 'mock-secret-key')
+      merchantKey: optional('PAYMENT_MOCK', 'false') === 'true'
+        ? (optional('DUITKU_MERCHANT_KEY', 'mock-secret-key'))
         : required('DUITKU_MERCHANT_KEY'),
-      mode: process.env.DUITKU_MODE || 'sandbox', // sandbox | production
+      mode: optional('DUITKU_MODE', 'sandbox'), // sandbox | production
     },
   },
 
   app: {
-    port: parseInt(process.env.PORT || '3000', 10),
-    publicBaseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
-    orderExpiryMinutes: parseInt(process.env.ORDER_EXPIRY_MINUTES || '15', 10),
+    port: parsePositiveInt('PORT', 3000),
+    publicBaseUrl: optional('PUBLIC_BASE_URL', 'http://localhost:3000').replace(/\/$/, ''),
+    orderExpiryMinutes: parsePositiveInt('ORDER_EXPIRY_MINUTES', 15),
   },
+
+  logLevel: optional('LOG_LEVEL', isProd ? 'info' : 'debug'),
+  webhookRateLimitWindowMs: parsePositiveInt('WEBHOOK_RATELIMIT_WINDOW_MS', 60 * 1000),
+  webhookRateLimitMax: parsePositiveInt('WEBHOOK_RATELIMIT_MAX', 60),
 };
+
+validateProdSafety(cfg);
+
+if (cfg.payment.mock || cfg.digiflazz.testing) {
+  console.warn('[config] PERINGATAN: mode testing/mock aktif — jangan pakai di production dengan uang asli.');
+}
+
+module.exports = cfg;

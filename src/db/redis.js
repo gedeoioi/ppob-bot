@@ -1,24 +1,56 @@
 const Redis = require('ioredis');
 const config = require('../config');
 
-const redis = new Redis(config.redisUrl);
+const redis = new Redis(config.redisUrl, {
+  maxRetriesPerRequest: 3,
+  enableReadyCheck: true,
+  enableOfflineQueue: true,
+  retryStrategy(times) {
+    // exponential backoff capped at 2s
+    return Math.min(times * 200, 2000);
+  },
+  reconnectOnError(err) {
+    // reconnect on READONLY etc.
+    const targetErrors = ['READONLY', 'ETIMEDOUT', 'ECONNRESET'];
+    return targetErrors.some((t) => err.message.includes(t));
+  },
+  lazyConnect: false,
+});
 
-/**
- * Distributed lock sederhana pakai SET NX PX.
- * Dipakai untuk memastikan satu order/webhook hanya diproses SATU KALI,
- * meskipun provider mengirim webhook retry berkali-kali secara bersamaan.
- *
- * @param {string} key - key unik, misal `lock:order:${refId}`
- * @param {number} ttlMs - berapa lama lock ditahan
- * @returns {Promise<boolean>} true jika berhasil dapat lock, false jika sudah dikunci proses lain
- */
-async function acquireLock(key, ttlMs = 10000) {
-  const result = await redis.set(key, '1', 'PX', ttlMs, 'NX');
-  return result === 'OK';
+redis.on('error', (err) => console.error('[redis] error:', err.message));
+redis.on('connect', () => console.log('[redis] connected'));
+redis.on('ready', () => console.log('[redis] ready'));
+redis.on('close', () => console.warn('[redis] connection closed'));
+
+async function acquireLock(key, ttlMs = 10_000) {
+  try {
+    const result = await redis.set(key, '1', 'PX', ttlMs, 'NX');
+    return result === 'OK';
+  } catch (err) {
+    console.error('[redis] acquireLock error:', err.message);
+    return false;
+  }
 }
 
 async function releaseLock(key) {
-  await redis.del(key);
+  try {
+    await redis.del(key);
+  } catch (err) {
+    console.error('[redis] releaseLock error:', err.message);
+  }
 }
 
-module.exports = { redis, acquireLock, releaseLock };
+async function checkHealth() {
+  const pong = await redis.ping();
+  if (pong !== 'PONG') throw new Error('Redis ping failed: ' + pong);
+}
+
+async function close() {
+  try {
+    await redis.quit();
+  } catch (_) {
+    redis.disconnect();
+  }
+}
+
+module.exports = { redis, acquireLock, releaseLock, checkHealth, close };
