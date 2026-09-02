@@ -12,7 +12,7 @@
 const db = require('../src/db');
 const digiflazz = require('../src/services/digiflazz');
 
-const MARKUP_DEFAULT = 1000;
+const MARKUP_DEFAULT = 500;
 
 async function main() {
   const brandFilter = process.argv[2]; // opsional, contoh: "Telkomsel"
