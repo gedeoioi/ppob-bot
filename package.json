@@ -9,7 +9,8 @@
     "dev": "nodemon src/index.js",
     "migrate": "node scripts/migrate.js",
     "test:webhook": "node scripts/test-webhook.js",
-    "sync:products": "node scripts/sync-products.js"
+    "sync:products": "node scripts/sync-products.js",
+    "sync:tokovoucher": "node scripts/sync-tokovoucher.js"
   },
   "engines": {
     "node": ">=18.0.0"

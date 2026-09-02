@@ -105,11 +105,22 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- audit log tiap request/response ke Digiflazz
+-- audit log tiap request/response ke Digiflazz / TokoVoucher
 CREATE TABLE IF NOT EXISTS digiflazz_logs (
     id              BIGSERIAL PRIMARY KEY,
     order_id        BIGINT REFERENCES orders(id),
     action          VARCHAR(32) NOT NULL,   -- topup | cek-status | cek-harga
+    request_payload JSONB,
+    response_payload JSONB,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- log provider baru (tokovoucher dll) — fallback digiflazz_logs jika belum ada
+CREATE TABLE IF NOT EXISTS provider_logs (
+    id              BIGSERIAL PRIMARY KEY,
+    order_id        BIGINT REFERENCES orders(id),
+    provider        VARCHAR(32) NOT NULL,   -- tokovoucher | digiflazz
+    action          VARCHAR(32) NOT NULL,
     request_payload JSONB,
     response_payload JSONB,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()

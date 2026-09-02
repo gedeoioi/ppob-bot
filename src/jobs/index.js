@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const db = require('../db');
 const { acquireLock, releaseLock } = require('../db/redis');
-const digiflazz = require('../services/digiflazz');
+const providerRouter = require('../services/provider');
 const orderService = require('../services/order');
 const topupService = require('../services/topup');
 const logger = require('../logger');
@@ -43,7 +43,16 @@ async function pollPendingDigiflazzOrders(onOrderFinalized) {
     const gotLock = await acquireLock(lockKey, 15000);
     if (!gotLock) continue;
     try {
-      const result = await digiflazz.checkStatus({
+      // TokoVoucher docs anjurkan polling max tiap 10 menit, Digiflazz tiap 1 menit.
+      // Kita pakai interval 1 menit untuk Digiflazz, 10 menit untuk TokoVoucher via cek updated_at,
+      // tapi karena query sudah filter updated_at < now()-1min, untuk TokoVoucher kita skip jika belum 10 menit.
+      const provider = providerRouter.currentProvider();
+      if (provider === 'tokovoucher') {
+        const lastUpdate = new Date(order.updated_at).getTime();
+        if (Date.now() - lastUpdate < 10 * 60 * 1000) continue;
+      }
+      const providerSvc = providerRouter.getProviderService();
+      const result = await providerSvc.checkStatus({
         orderId: order.id,
         refId: order.ref_id,
         buyerSkuCode: order.buyer_sku_code,

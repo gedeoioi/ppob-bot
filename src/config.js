@@ -68,6 +68,18 @@ const cfg = {
     testing: optional('DIGIFLAZZ_TESTING', 'false') === 'true',
   },
 
+  tokovoucher: {
+    memberCode: optional('TOKOVOUCHER_MEMBER_CODE', ''),
+    secret: optional('TOKOVOUCHER_SECRET', ''),
+    baseUrl: optional('TOKOVOUCHER_BASE_URL', 'https://api.tokovoucher.net').replace(/\/$/, ''),
+  },
+
+  transactionProvider: (() => {
+    const p = optional('TRANSACTION_PROVIDER', 'digiflazz').toLowerCase();
+    if (!['digiflazz', 'tokovoucher'].includes(p)) throw new Error('TRANSACTION_PROVIDER harus digiflazz atau tokovoucher');
+    return p;
+  })(),
+
   payment: {
     gateway: optional('PAYMENT_GATEWAY', 'duitku'),
     mock: optional('PAYMENT_MOCK', 'false') === 'true',

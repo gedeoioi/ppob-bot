@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const db = require('../db');
 const { acquireLock, releaseLock } = require('../db/redis');
-const digiflazz = require('./digiflazz');
+const providerRouter = require('./provider');
 const payment = require('./payment');
 const config = require('../config');
 
@@ -153,8 +153,9 @@ async function createOrderViaSaldo({ userId, buyerSkuCode, customerNo }) {
     description: `Pembayaran order ${refId} ${product.nama}`,
   });
 
-  // Langsung hit Digiflazz
-  const result = await digiflazz.topup({
+  // Langsung hit provider aktif (digiflazz / tokovoucher)
+  const providerSvc = providerRouter.getProviderService();
+  const result = await providerSvc.topup({
     orderId: order.id,
     refId: order.ref_id,
     buyerSkuCode: order.buyer_sku_code,
@@ -197,7 +198,8 @@ async function handlePaymentPaid({ refId }) {
       [order.id]
     );
 
-    const result = await digiflazz.topup({
+    const providerSvc = providerRouter.getProviderService();
+    const result = await providerSvc.topup({
       orderId: order.id,
       refId: order.ref_id,
       buyerSkuCode: order.buyer_sku_code,

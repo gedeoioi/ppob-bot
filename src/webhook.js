@@ -41,6 +41,76 @@ function createWebhookApp({ onOrderSuccess, onOrderFailed } = {}) {
   let onTopupSuccess = null;
   app.locals.setTopupHandler = (fn) => { onTopupSuccess = fn; };
 
+  // Webhook TokoVoucher — header X-TokoVoucher-Authorization: md5(MEMBER_CODE:SECRET:REF_ID)
+  app.post('/webhook/tokovoucher', async (req, res) => {
+    const auth = req.headers['x-tokovoucher-authorization'] || req.headers['X-TokoVoucher-Authorization'];
+    const { ref_id: refId, status, sn, trx_id } = req.body || {};
+
+    // Log mentah untuk forensik (selalu tulis, valid atau tidak)
+    try {
+      const isValidPreview = (() => {
+        try {
+          const tokv = require('./services/tokovoucher');
+          return refId ? tokv.verifyWebhookSignature(refId, auth) : false;
+        } catch (_) { return false; }
+      })();
+      await db.query(
+        `INSERT INTO webhook_logs (source, signature_valid, raw_payload) VALUES ($1,$2,$3)`,
+        ['tokovoucher', isValidPreview, req.body || {}]
+      );
+    } catch (e) {
+      req.log.error({ err: e.message }, '[webhook/tokovoucher] gagal tulis webhook_logs');
+    }
+
+    if (!refId) return res.status(400).send('missing ref_id');
+
+    const tokv = require('./services/tokovoucher');
+    if (!tokv.verifyWebhookSignature(refId, auth)) {
+      req.log.warn({ refId, auth }, '[webhook/tokovoucher] invalid signature');
+      return res.status(401).send('invalid signature');
+    }
+
+    res.status(200).send('OK');
+
+    // Hanya proses jika status final; pending diabaikan (polling akan urus)
+    const s = String(status || '').toLowerCase();
+    if (s !== 'sukses' && s !== 'gagal') {
+      req.log.info({ refId, status }, '[webhook/tokovoucher] status non-final, diabaikan');
+      return;
+    }
+
+    try {
+      const mapped = {
+        status: s === 'sukses' ? 'Sukses' : 'Gagal',
+        sn: sn || '',
+        message: req.body.message || '',
+        ref_id: refId,
+        trx_id: trx_id || '',
+      };
+      // Cari order berdasarkan ref_id
+      const orderRes = await db.query('SELECT id FROM orders WHERE ref_id = $1', [refId]);
+      if (orderRes.rows.length === 0) {
+        req.log.warn({ refId }, '[webhook/tokovoucher] order tidak ditemukan');
+        return;
+      }
+      const orderId = orderRes.rows[0].id;
+
+      // Idempotent: jika sudah bukan Pending/processing, skip
+      const cur = await db.query('SELECT status, digiflazz_status FROM orders WHERE id=$1', [orderId]);
+      if (cur.rows[0] && cur.rows[0].status !== 'processing' && cur.rows[0].digiflazz_status !== 'Pending') {
+        req.log.info({ refId, curStatus: cur.rows[0].status }, '[webhook/tokovoucher] skip, bukan pending');
+        return;
+      }
+
+      const orderService = require('./services/order');
+      const updated = await orderService.applyDigiflazzResult(orderId, mapped);
+      if (updated.status !== 'processing' && onOrderSuccess) await onOrderSuccess(updated);
+    } catch (err) {
+      req.log.error({ err: err.message, refId }, '[webhook/tokovoucher] gagal proses');
+      if (onOrderFailed) await onOrderFailed(err);
+    }
+  });
+
   app.post('/webhook/duitku', webhookLimiter, async (req, res) => {
     const body = req.body;
     const isValid = payment.verifyCallbackSignature(body);
