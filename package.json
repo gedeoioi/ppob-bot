@@ -1,0 +1,27 @@
+{
+  "name": "ppob-telegram-bot",
+  "version": "1.0.0",
+  "description": "Bot Telegram PPOB dengan Digiflazz + QRIS dinamis auto-konfirmasi",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "migrate": "node scripts/migrate.js",
+    "test:webhook": "node scripts/test-webhook.js",
+    "sync:products": "node scripts/sync-products.js"
+  },
+  "dependencies": {
+    "grammy": "^1.24.0",
+    "express": "^4.19.2",
+    "pg": "^8.12.0",
+    "ioredis": "^5.4.1",
+    "axios": "^1.7.4",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
