@@ -158,13 +158,34 @@ async function createOrderViaSaldo({ userId, buyerSkuCode, customerNo }) {
   });
 
   // Langsung hit provider aktif (digiflazz / tokovoucher)
+  // Jika provider langsung return Gagal (nomor tujuan salah, produk tidak aktif) → apply langsung jadi failed + refund
+  // Jika provider throw / return Pending → biarkan processing agar polling/webhook bisa finalisasi
   const providerSvc = providerRouter.getProviderService();
-  const result = await providerSvc.topup({
-    orderId: order.id,
-    refId: order.ref_id,
-    buyerSkuCode: order.buyer_sku_code,
-    customerNo: order.customer_no,
-  });
+  let result;
+  let earlyError = null;
+  try {
+    result = await providerSvc.topup({
+      orderId: order.id,
+      refId: order.ref_id,
+      buyerSkuCode: order.buyer_sku_code,
+      customerNo: order.customer_no,
+    });
+  } catch (e) {
+    const msg = String(e.message || '');
+    // Signature / IP / kredensial salah = transient → biarkan Pending agar tidak langsung failed tanpa retry
+    if (/signature|ip not allow|kredensial/i.test(msg.toLowerCase())) {
+      console.warn(`[orderViaSaldo] transient provider error, dibiarkan Pending: ${msg}`);
+      return { order, digiflazzResult: { status: 'Pending', message: msg, sn: '' } };
+    }
+    // Permanent: nomor tujuan salah, produk tidak ditemukan → tandai Gagal langsung + refund
+    earlyError = e;
+  }
+
+  if (earlyError) {
+    const fakeResult = { status: 'Gagal', sn: '', message: earlyError.message };
+    const updatedOrder = await applyDigiflazzResult(order.id, fakeResult);
+    return { order: updatedOrder, digiflazzResult: fakeResult };
+  }
 
   const updatedOrder = await applyDigiflazzResult(order.id, result);
   return { order: updatedOrder, digiflazzResult: result };
@@ -202,13 +223,29 @@ async function handlePaymentPaid({ refId }) {
       [order.id]
     );
 
-    const providerSvc = providerRouter.getProviderService();
-    const result = await providerSvc.topup({
-      orderId: order.id,
-      refId: order.ref_id,
-      buyerSkuCode: order.buyer_sku_code,
-      customerNo: order.customer_no,
-    });
+    const providerSvc = providerRouter.getProviderServiceForOrder(order);
+    let result;
+    try {
+      result = await providerSvc.topup({
+        orderId: order.id,
+        refId: order.ref_id,
+        buyerSkuCode: order.buyer_sku_code,
+        customerNo: order.customer_no,
+      });
+    } catch (e) {
+      const msg = String(e.message || '');
+      if (/signature|ip not allow|kredensial/i.test(msg.toLowerCase())) {
+        console.warn(`[handlePaymentPaid] transient error, biarkan processing Pending: ${msg}`);
+        // Update digiflazz_status jadi Pending agar polling tetap jalan, tapi jangan failed
+        await db.query(`UPDATE orders SET digiflazz_status='Pending', updated_at=now() WHERE id=$1`, [order.id]);
+        const cur = await db.query('SELECT * FROM orders WHERE id=$1', [order.id]);
+        return { order: cur.rows[0], digiflazzResult: { status: 'Pending', message: msg, sn: '' } };
+      }
+      // Permanent error → langsung Gagal + refund, dan notifikasi akan selaras (failed)
+      const fakeResult = { status: 'Gagal', sn: '', message: msg };
+      const updated = await applyDigiflazzResult(order.id, fakeResult);
+      return { order: updated, digiflazzResult: fakeResult };
+    }
 
     const updatedOrder = await applyDigiflazzResult(order.id, result);
 

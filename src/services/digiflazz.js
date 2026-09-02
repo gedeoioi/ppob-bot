@@ -77,7 +77,15 @@ async function topup({ orderId, refId, buyerSkuCode, customerNo }) {
     [orderId, payload, responseData]
   );
 
+  // Non-2xx dengan body error_msg (Ip Not Allow, Signature Invalid) tidak ada data.data
+  // Jangan throw kosong — kembalikan Pending agar polling bisa retry, webhook tetap bisa finalisasi
   if (!responseData.data) {
+    const errMsg = responseData.error_msg || responseData.message || JSON.stringify(responseData);
+    // Rate limit / temporary → Pending (retryable)
+    if (/limit|coba|timeout|pending/i.test(errMsg)) {
+      console.warn(`[digiflazz:topup] transient error, dianggap Pending: ${errMsg}`);
+      return { status: 'Pending', sn: '', message: errMsg, ref_id: refId };
+    }
     throw new Error(`Digiflazz tidak mengembalikan data yang valid: ${JSON.stringify(responseData)}`);
   }
 
@@ -125,6 +133,11 @@ async function checkStatus({ orderId, refId, buyerSkuCode, customerNo }) {
   );
 
   if (!responseData.data) {
+    const errMsg = responseData.error_msg || responseData.message || JSON.stringify(responseData);
+    if (/limit|coba|timeout|pending/i.test(errMsg)) {
+      console.warn(`[digiflazz:checkStatus] transient error, dianggap Pending: ${errMsg}`);
+      return { status: 'Pending', sn: '', message: errMsg, ref_id: refId };
+    }
     throw new Error(`Digiflazz tidak mengembalikan data yang valid: ${JSON.stringify(responseData)}`);
   }
 

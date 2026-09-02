@@ -666,6 +666,7 @@ bot.callbackQuery('pay_qris', async (ctx) => {
     logger.error({ err: err.message, userId: ctx.from.id, sku }, '[bot] gagal order QRIS');
     await ctx.reply(err.message.includes('tidak ditemukan') ? err.message : 'Maaf, terjadi kendala saat membuat order. Coba lagi.', { reply_markup: mainKeyboard() });
   }
+  // Untuk QRIS, status Gagal dari provider akan datang via webhook/polling — notifyOrderResult akan kirim ❌ + refund
 });
 
 bot.callbackQuery('pay_saldo', async (ctx) => {
@@ -692,7 +693,15 @@ bot.callbackQuery('pay_saldo', async (ctx) => {
     }
   } catch (err) {
     logger.error({ err: err.message, userId: ctx.from.id, sku }, '[bot] gagal order saldo');
-    await ctx.reply(err.message.includes('Saldo tidak cukup') || err.message.includes('tidak ditemukan') ? err.message : 'Maaf, gagal memproses via saldo. Coba lagi.', { reply_markup: mainKeyboard() });
+    // Bedakan: jika provider langsung bilang nomor tujuan salah / produk tidak ditemukan → tampilkan jelas agar user tau bukan bug bot
+    const low = String(err.message || '').toLowerCase();
+    if (low.includes('nomor tujuan') || low.includes('nomor tidak') || low.includes('customer_no') || low.includes('tujuan salah')) {
+      await ctx.reply(`❌ Nomor tujuan salah: ${err.message}\nPeriksa kembali nomor/ID tujuan lalu ulangi /produk.`, { reply_markup: mainKeyboard() });
+    } else if (low.includes('signature') || low.includes('ip not allow') || low.includes('kredensial')) {
+      await ctx.reply(`⚠️ Gangguan provider sementara (${err.message}). Order tetap tercatat sebagai Pending, akan dipolling otomatis. Cek /riwayat.`, { reply_markup: mainKeyboard() });
+    } else {
+      await ctx.reply(err.message.includes('Saldo tidak cukup') || err.message.includes('tidak ditemukan') ? err.message : 'Maaf, gagal memproses via saldo. Coba lagi.', { reply_markup: mainKeyboard() });
+    }
   }
 });
 
