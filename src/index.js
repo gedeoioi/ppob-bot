@@ -24,6 +24,11 @@ async function main() {
     onOrderSuccess: notifyOrderResult,
     onOrderFailed: (err) => logger.error({ err: err.message }, '[order] gagal diproses'),
   });
+  // Notifikasi topup sukses via bot
+  try {
+    const { notifyTopupSuccess } = require('./bot');
+    app.locals.setTopupHandler(notifyTopupSuccess);
+  } catch (_) {}
 
   httpServer = app.listen(config.app.port, () => {
     logger.info(`[webhook] listening on port ${config.app.port} (env=${config.env})`);

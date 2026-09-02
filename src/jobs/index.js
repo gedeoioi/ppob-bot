@@ -3,6 +3,7 @@ const db = require('../db');
 const { acquireLock, releaseLock } = require('../db/redis');
 const digiflazz = require('../services/digiflazz');
 const orderService = require('../services/order');
+const topupService = require('../services/topup');
 const logger = require('../logger');
 
 const tasks = [];
@@ -13,14 +14,17 @@ async function expireOrders() {
      WHERE status = 'pending_payment' AND expired_at < now()
      RETURNING id, ref_id`
   );
-
   if (res.rows.length > 0) {
     logger.info({ count: res.rows.length, refIds: res.rows.map((o) => o.ref_id) }, '[cron:expire] orders expired');
     const orderIds = res.rows.map((o) => o.id);
-    await db.query(
-      `UPDATE payments SET status = 'expired' WHERE order_id = ANY($1) AND status = 'pending'`,
-      [orderIds]
-    );
+    await db.query(`UPDATE payments SET status = 'expired' WHERE order_id = ANY($1) AND status = 'pending'`, [orderIds]);
+  }
+}
+
+async function expireTopups() {
+  const rows = await topupService.expireTopups();
+  if (rows.length > 0) {
+    logger.info({ count: rows.length, refIds: rows.map((r) => r.ref_id) }, '[cron:expire] topups expired');
   }
 }
 
@@ -32,15 +36,12 @@ async function pollPendingDigiflazzOrders(onOrderFinalized) {
      ORDER BY updated_at ASC
      LIMIT 20`
   );
-
   if (res.rows.length === 0) return;
   logger.info({ count: res.rows.length }, '[cron:poll-status] checking pending orders');
-
   for (const order of res.rows) {
     const lockKey = `lock:order:${order.ref_id}`;
     const gotLock = await acquireLock(lockKey, 15000);
     if (!gotLock) continue;
-
     try {
       const result = await digiflazz.checkStatus({
         orderId: order.id,
@@ -48,11 +49,9 @@ async function pollPendingDigiflazzOrders(onOrderFinalized) {
         buyerSkuCode: order.buyer_sku_code,
         customerNo: order.customer_no,
       });
-
       const updatedOrder = await orderService.applyDigiflazzResult(order.id, result);
-
       if (updatedOrder.status !== 'processing') {
-        logger.info({ refId: order.ref_id, status: updatedOrder.status }, '[cron:poll-status] order finalized');
+        logger.info({ refId: order.ref_id, status: updatedOrder.status, refunded: updatedOrder.refunded }, '[cron:poll-status] order finalized');
         if (onOrderFinalized) await onOrderFinalized(updatedOrder);
       }
     } catch (err) {
@@ -66,16 +65,15 @@ async function pollPendingDigiflazzOrders(onOrderFinalized) {
 function startJobs({ onOrderFinalized } = {}) {
   const t1 = cron.schedule('* * * * *', () => {
     expireOrders().catch((err) => logger.error({ err: err.message }, '[cron:expire] error'));
+    expireTopups().catch((err) => logger.error({ err: err.message }, '[cron:expire-topup] error'));
   });
-
   const t2 = cron.schedule('*/2 * * * *', () => {
     pollPendingDigiflazzOrders(onOrderFinalized).catch((err) =>
       logger.error({ err: err.message }, '[cron:poll-status] error')
     );
   });
-
   tasks.push(t1, t2);
-  logger.info('[cron] jobs active: auto-expire (1m) + poll-status (2m)');
+  logger.info('[cron] jobs active: auto-expire (1m) + poll-status (2m) + expire-topup (1m)');
 }
 
 function stopJobs() {
@@ -84,4 +82,4 @@ function stopJobs() {
   logger.info('[cron] jobs stopped');
 }
 
-module.exports = { startJobs, stopJobs, expireOrders, pollPendingDigiflazzOrders };
+module.exports = { startJobs, stopJobs, expireOrders, expireTopups, pollPendingDigiflazzOrders };
