@@ -128,7 +128,14 @@ async function topup({ orderId, refId, buyerSkuCode, customerNo, serverId = '' }
       console.warn('[tokovoucher:topup] rate limit, dianggap Pending:', msg);
       return { status: 'Pending', sn: '', message: msg, ref_id: refId, trx_id: '', raw };
     }
-    // Signature/IP — permanent Gagal agar refund & admin tau
+    // Permanent: nomor tujuan salah, produk, dll — kembalikan Gagal agar applyDigiflazzResult ubah status + refund + notif
+    // Sebelumnya throw di sini bikin orderViaSaldo/handlePaymentPaid masuk catch transient-only dan tetap Pending
+    if (low.includes('tujuan') || low.includes('nomor') || low.includes('tidak ditemukan') || low.includes('produk') || low.includes('kode produk') || low.includes('member tidak') || low.includes('saldo tidak cukup') || low.includes('saldo habis')) {
+      console.warn('[tokovoucher:topup] permanent fail, map ke Gagal:', msg);
+      return { status: 'Gagal', sn: '', message: msg, ref_id: refId, trx_id: raw.trx_id || '', raw };
+    }
+    // Signature/IP — transient Gagal tipe kredensial, biarkan Pending agar tidak langsung failed (akan retry polling)
+    // Tapi jika sudah jelas permanent kredensial, order.js akan tangani sebagai pending juga (tidak refund salah)
     throw new Error(`TokoVoucher error: ${raw.error_msg || JSON.stringify(raw)}`);
   }
   const mapped = mapStatus(raw);
@@ -171,6 +178,10 @@ async function checkStatus({ orderId, refId }) {
     if (low.includes('limitasi') || low.includes('limit') || low.includes('coba')) {
       console.warn('[tokovoucher:checkStatus] rate limit, dianggap Pending:', msg);
       return { status: 'Pending', sn: '', message: msg, ref_id: refId, trx_id: '', raw };
+    }
+    if (low.includes('tujuan') || low.includes('nomor') || low.includes('tidak ditemukan') || low.includes('produk') || low.includes('kode produk') || low.includes('saldo tidak cukup')) {
+      console.warn('[tokovoucher:checkStatus] permanent fail, map ke Gagal:', msg);
+      return { status: 'Gagal', sn: '', message: msg, ref_id: refId, trx_id: raw.trx_id || '', raw };
     }
     throw new Error(`TokoVoucher cek status error: ${raw.error_msg || JSON.stringify(raw)}`);
   }

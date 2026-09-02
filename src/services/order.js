@@ -172,12 +172,14 @@ async function createOrderViaSaldo({ userId, buyerSkuCode, customerNo }) {
     });
   } catch (e) {
     const msg = String(e.message || '');
-    // Signature / IP / kredensial salah = transient → biarkan Pending agar tidak langsung failed tanpa retry
-    if (/signature|ip not allow|kredensial/i.test(msg.toLowerCase())) {
+    const low = msg.toLowerCase();
+    // Transient kredensial → Pending (retry polling), jangan langsung failed
+    if (/signature|ip not allow|kredensial/i.test(low)) {
       console.warn(`[orderViaSaldo] transient provider error, dibiarkan Pending: ${msg}`);
       return { order, digiflazzResult: { status: 'Pending', message: msg, sn: '' } };
     }
-    // Permanent: nomor tujuan salah, produk tidak ditemukan → tandai Gagal langsung + refund
+    // Semua throw lain dari provider (termasuk yang sudah tidak di-map oleh tokovoucher) → anggap permanent Gagal
+    // Ini cegah kasus TokoVoucher nomor tujuan salah yang masih throw (sebelum fix) tetap Pending
     earlyError = e;
   }
 
@@ -234,14 +236,15 @@ async function handlePaymentPaid({ refId }) {
       });
     } catch (e) {
       const msg = String(e.message || '');
-      if (/signature|ip not allow|kredensial/i.test(msg.toLowerCase())) {
+      const low = msg.toLowerCase();
+      // Transient kredensial → Pending agar polling retry
+      if (/signature|ip not allow|kredensial/i.test(low)) {
         console.warn(`[handlePaymentPaid] transient error, biarkan processing Pending: ${msg}`);
-        // Update digiflazz_status jadi Pending agar polling tetap jalan, tapi jangan failed
         await db.query(`UPDATE orders SET digiflazz_status='Pending', updated_at=now() WHERE id=$1`, [order.id]);
         const cur = await db.query('SELECT * FROM orders WHERE id=$1', [order.id]);
         return { order: cur.rows[0], digiflazzResult: { status: 'Pending', message: msg, sn: '' } };
       }
-      // Permanent error → langsung Gagal + refund, dan notifikasi akan selaras (failed)
+      // Permanent (nomor tujuan salah, produk, dll yang masih throw) → langsung Gagal + refund + notif selaras
       const fakeResult = { status: 'Gagal', sn: '', message: msg };
       const updated = await applyDigiflazzResult(order.id, fakeResult);
       return { order: updated, digiflazzResult: fakeResult };
