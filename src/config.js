@@ -91,6 +91,13 @@ const cfg = {
   logLevel: optional('LOG_LEVEL', isProd ? 'info' : 'debug'),
   webhookRateLimitWindowMs: parsePositiveInt('WEBHOOK_RATELIMIT_WINDOW_MS', 60 * 1000),
   webhookRateLimitMax: parsePositiveInt('WEBHOOK_RATELIMIT_MAX', 60),
+
+  adminIds: (process.env.ADMIN_IDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n)),
 };
 
 validateProdSafety(cfg);
@@ -98,5 +105,7 @@ validateProdSafety(cfg);
 if (cfg.payment.mock || cfg.digiflazz.testing) {
   console.warn('[config] PERINGATAN: mode testing/mock aktif — jangan pakai di production dengan uang asli.');
 }
+
+cfg.isAdmin = (telegramId) => cfg.adminIds.includes(Number(telegramId));
 
 module.exports = cfg;

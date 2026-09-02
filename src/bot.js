@@ -5,6 +5,7 @@ const db = require('./db');
 const orderService = require('./services/order');
 const topupService = require('./services/topup');
 const balanceService = require('./services/balance');
+const admin = require('./admin');
 const logger = require('./logger');
 
 const bot = new Bot(config.telegramToken);
@@ -27,6 +28,7 @@ bot.use(
       pendingSku: null,
       pendingOrder: null, // { sku, customerNo }
       awaitingTopup: false,
+      adminState: null, // { action, telegramId }
     }),
   })
 );
@@ -70,10 +72,19 @@ async function getOrCreateUser(ctx) {
 }
 
 function mainKeyboard() {
+  // Base keyboard untuk semua user
+  const kb = new Keyboard()
+    .text('🛒 Produk').text('📂 Kategori').row()
+    .text('💰 Saldo').text('➕ Topup').row()
+    .text('📜 Riwayat').text('❓ Bantuan').row();
+  return kb.resized().persistent();
+}
+
+function adminKeyboard() {
   return new Keyboard()
     .text('🛒 Produk').text('📂 Kategori').row()
     .text('💰 Saldo').text('➕ Topup').row()
-    .text('📜 Riwayat').text('❓ Bantuan').row()
+    .text('📜 Riwayat').text('👑 Admin').row()
     .resized()
     .persistent();
 }
@@ -293,6 +304,7 @@ bot.command('start', async (ctx) => {
     const user = await getOrCreateUser(ctx);
     const fresh = await db.query('SELECT saldo FROM users WHERE id = $1', [user.id]);
     const saldo = Number(fresh.rows[0].saldo);
+    const kb = admin.isAdmin(ctx.from.id) ? adminKeyboard() : mainKeyboard();
     await ctx.reply(
       '👋 *Selamat datang di PPOB Bot!*\n\n' +
       `💰 Saldo: ${formatRupiah(saldo)}\n\n` +
@@ -302,9 +314,10 @@ bot.command('start', async (ctx) => {
       '💰 /saldo — cek saldo & mutasi\n' +
       '➕ /topup — isi saldo via QRIS\n' +
       '📜 /riwayat — transaksi terakhir\n' +
-      '❓ /bantuan — cara pakai\n\n' +
-      'Gunakan tombol di bawah.',
-      { parse_mode: 'Markdown', reply_markup: mainKeyboard() }
+      '❓ /bantuan — cara pakai\n' +
+      (admin.isAdmin(ctx.from.id) ? '👑 /admin — panel owner\n' : '') +
+      '\nGunakan tombol di bawah.',
+      { parse_mode: 'Markdown', reply_markup: kb }
     );
   } catch (err) {
     logger.warn({ err: err.message, userId: ctx.from.id }, '[bot:start] gagal');
@@ -329,7 +342,24 @@ bot.command('batal', async (ctx) => {
   ctx.session.pendingSku = null;
   ctx.session.pendingOrder = null;
   ctx.session.awaitingTopup = false;
+  ctx.session.adminState = null;
   await ctx.reply('Input dibatalkan.', { reply_markup: mainKeyboard() });
+});
+
+// ── Admin panel (owner only) ─────────────────────────────────────
+bot.command('admin', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return ctx.reply('⛔ Khusus owner/admin.');
+  try { await admin.sendAdminPanel(ctx); } catch (e) { logger.error({ err: e.message }, '[admin] panel gagal'); await ctx.reply('Gagal memuat admin panel.'); }
+});
+bot.command('stats', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  const s = await admin.getStats();
+  await ctx.reply(`📊 Statistik: order sukses ${s.ordersSuccess} pending ${s.ordersPending} failed ${s.ordersFailed} | topup pending ${s.topupPending} | member ${s.totalUsers}`);
+});
+// Tampilkan keyboard admin khusus agar tombol 👑 Admin terlihat untuk owner
+bot.command('adminkeyboard', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return ctx.reply('⛔ Khusus owner.');
+  await ctx.reply('Keyboard admin aktif.', { reply_markup: adminKeyboard() });
 });
 
 bot.command('saldo', async (ctx) => {
@@ -371,6 +401,10 @@ bot.hears('🛒 Produk', async (ctx) => { try { await sendProdukPage(ctx, 0); } 
 bot.hears('📂 Kategori', async (ctx) => { try { await sendKategoriMenu(ctx); } catch (e) {} });
 bot.hears('💰 Saldo', async (ctx) => { try { await sendSaldoInfo(ctx); } catch (e) {} });
 bot.hears('➕ Topup', async (ctx) => { try { await sendTopupMenu(ctx); } catch (e) {} });
+bot.hears('👑 Admin', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return ctx.reply('⛔ Khusus owner.');
+  try { await admin.sendAdminPanel(ctx); } catch (e) { await ctx.reply('Gagal memuat admin panel.'); }
+});
 bot.hears('📜 Riwayat', async (ctx) => {
   if (isRateLimited(ctx.from.id, 2000)) return;
   try {
@@ -383,6 +417,135 @@ bot.hears('📜 Riwayat', async (ctx) => {
 });
 bot.hears('❓ Bantuan', async (ctx) => {
   await ctx.reply('Gunakan /bantuan untuk panduan lengkap.', { reply_markup: mainKeyboard() });
+});
+
+// ── Admin callbacks ──────────────────────────────────────────────
+bot.callbackQuery('adm_panel', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return ctx.answerCallbackQuery({ text: '⛔' });
+  await admin.sendAdminPanel(ctx);
+});
+bot.callbackQuery('adm_stats', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  const s = await admin.getStats();
+  await ctx.answerCallbackQuery();
+  await ctx.reply(`📊 Statistik:\nMember: ${s.totalUsers}\nOrder pending: ${s.ordersPending}\nTopup pending: ${s.topupPending}\nRevenue hari ini: ${formatRupiah(s.revenueToday)}`);
+});
+bot.callbackQuery(/^adm_orders:([^:]+):(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await admin.sendOrders(ctx, parseInt(ctx.match[2],10), ctx.match[1]);
+});
+bot.callbackQuery(/^adm_order_detail:(.+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await admin.sendOrderDetail(ctx, ctx.match[1]);
+});
+bot.callbackQuery(/^adm_refund:(.+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return ctx.answerCallbackQuery({ text: '⛔' });
+  const refId = ctx.match[1];
+  await ctx.answerCallbackQuery();
+  try {
+    const oRes = await db.query('SELECT id, total_bayar, refunded FROM orders WHERE ref_id=$1', [refId]);
+    if (!oRes.rows.length) return ctx.reply('Order tidak ditemukan');
+    if (oRes.rows[0].refunded) return ctx.reply('Sudah direfund sebelumnya.');
+    await balanceService.mutateBalance({ userId: (await db.query('SELECT user_id FROM orders WHERE ref_id=$1',[refId])).rows[0].user_id, amount: Number(oRes.rows[0].total_bayar), reason: 'refund', orderId: oRes.rows[0].id, description: `Refund manual admin untuk ${refId}` });
+    await db.query('UPDATE orders SET refunded=true WHERE ref_id=$1', [refId]);
+    await ctx.reply(`✅ Refund ${formatRupiah(oRes.rows[0].total_bayar)} untuk ${refId} berhasil.`);
+  } catch (e) { await ctx.reply('Gagal refund: '+e.message); }
+});
+bot.callbackQuery(/^adm_topups:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await admin.sendTopups(ctx, parseInt(ctx.match[1],10));
+});
+bot.callbackQuery(/^adm_members:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await admin.sendMembers(ctx, parseInt(ctx.match[1],10));
+});
+bot.callbackQuery(/^adm_user:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await admin.sendUserDetail(ctx, ctx.match[1]);
+});
+bot.callbackQuery(/^adm_ban:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await db.query('UPDATE users SET is_banned=true WHERE telegram_id=$1', [ctx.match[1]]);
+  await ctx.answerCallbackQuery({ text: 'Banned' });
+  await admin.sendUserDetail(ctx, ctx.match[1]);
+});
+bot.callbackQuery(/^adm_unban:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await db.query('UPDATE users SET is_banned=false WHERE telegram_id=$1', [ctx.match[1]]);
+  await ctx.answerCallbackQuery({ text: 'Unbanned' });
+  await admin.sendUserDetail(ctx, ctx.match[1]);
+});
+bot.callbackQuery(/^adm_toggleadmin:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  const r = await db.query('SELECT role FROM users WHERE telegram_id=$1', [ctx.match[1]]);
+  const newRole = r.rows[0]?.role === 'admin' ? 'user' : 'admin';
+  await db.query('UPDATE users SET role=$1 WHERE telegram_id=$2', [newRole, ctx.match[1]]);
+  await ctx.answerCallbackQuery({ text: `Role -> ${newRole}` });
+  await admin.sendUserDetail(ctx, ctx.match[1]);
+});
+bot.callbackQuery('adm_addsaldo', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await ctx.answerCallbackQuery();
+  ctx.session.adminState = { action: 'addsaldo' };
+  await ctx.reply('Kirim: `telegram_id nominal`\nContoh: `2110398202 50000` atau `2110398202 50k`\nKetik /batal untuk batalkan.', { parse_mode: 'Markdown' });
+});
+bot.callbackQuery(/^adm_addsaldo:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  ctx.session.adminState = { action: 'addsaldo', telegramId: ctx.match[1] };
+  await ctx.answerCallbackQuery();
+  await ctx.reply(`Kirim nominal untuk ${ctx.match[1]} (contoh: 50000 atau 50k). /batal untuk batalkan.`);
+});
+bot.callbackQuery(/^adm_subsaldo:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  ctx.session.adminState = { action: 'subsaldo', telegramId: ctx.match[1] };
+  await ctx.answerCallbackQuery();
+  await ctx.reply(`Kirim nominal yang akan *dikurangi* dari ${ctx.match[1]} (contoh: 20000). /batal untuk batalkan.`, { parse_mode: 'Markdown' });
+});
+bot.callbackQuery('adm_search', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  ctx.session.adminState = { action: 'search' };
+  await ctx.answerCallbackQuery();
+  await ctx.reply('Ketik yang dicari: telegram_id, @username, nama, atau ref_id/top_id (ORD.../TOP...).');
+});
+bot.callbackQuery('adm_mutasi', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  const rows = await db.query('SELECT user_id, amount, reason, created_at FROM balance_mutations ORDER BY created_at DESC LIMIT 15');
+  if (!rows.rows.length) { await ctx.answerCallbackQuery({ text: 'Belum ada' }); return; }
+  await ctx.answerCallbackQuery();
+  const lines = rows.rows.map(r=>`${new Date(r.created_at).toLocaleString('id-ID')} | u${r.user_id} | ${r.amount>0?'+':''}${formatRupiah(r.amount)} | ${r.reason}`);
+  await ctx.reply(lines.join('\n'));
+});
+bot.callbackQuery(/^adm_products:(\d+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await admin.sendProductsAdmin(ctx, parseInt(ctx.match[1],10));
+});
+bot.callbackQuery('adm_products', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await admin.sendProductsAdmin(ctx, 0);
+});
+bot.callbackQuery(/^adm_prod:(.+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  const sku = ctx.match[1];
+  const r = await db.query('SELECT * FROM products WHERE buyer_sku_code=$1', [sku]);
+  if (!r.rows.length) return ctx.answerCallbackQuery({ text: 'Tidak ada' });
+  const p = r.rows[0];
+  const kb = new (require('grammy').InlineKeyboard)()
+    .text(p.is_active?'❌ Nonaktifkan':'✅ Aktifkan', `adm_prod_toggle:${sku}`).row()
+    .text('⬅️ Daftar','adm_products:0').text('⬅️ Panel','adm_panel');
+  await ctx.editMessageText(`⚙️ *Produk* \`${escapeMarkdown(sku)}\`\nNama: ${escapeMarkdown(p.nama)}\nKategori: ${escapeMarkdown(p.kategori||'-')} | Brand: ${escapeMarkdown(p.brand||'-')}\nHarga: ${formatRupiah(p.harga_jual)} (beli ${formatRupiah(p.harga_beli)} + markup ${formatRupiah(p.markup)})\nAktif: ${p.is_active?'Ya':'Tidak'}`, { parse_mode: 'Markdown', reply_markup: kb });
+  await ctx.answerCallbackQuery();
+});
+bot.callbackQuery(/^adm_prod_toggle:(.+)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  const sku = ctx.match[1];
+  await db.query('UPDATE products SET is_active = NOT is_active WHERE buyer_sku_code=$1', [sku]);
+  await ctx.answerCallbackQuery({ text: 'Diubah' });
+  const r = await db.query('SELECT * FROM products WHERE buyer_sku_code=$1', [sku]);
+  const p = r.rows[0];
+  const kb = new (require('grammy').InlineKeyboard)()
+    .text(p.is_active?'❌ Nonaktifkan':'✅ Aktifkan', `adm_prod_toggle:${sku}`).row()
+    .text('⬅️ Daftar','adm_products:0').text('⬅️ Panel','adm_panel');
+  await ctx.editMessageText(`⚙️ *Produk* \`${escapeMarkdown(sku)}\`\nAktif: ${p.is_active?'Ya':'Tidak'}`, { parse_mode: 'Markdown', reply_markup: kb });
 });
 
 // ── Callback queries ───────────────────────────────────────────────
@@ -521,7 +684,41 @@ bot.callbackQuery('pay_cancel', async (ctx) => {
 bot.on('message:text', async (ctx, next) => {
   const text = ctx.message.text.trim();
   if (text.startsWith('/')) return next();
-  if (['🛒 Produk','📂 Kategori','💰 Saldo','➕ Topup','📜 Riwayat','❓ Bantuan'].includes(text)) return next();
+  if (['🛒 Produk','📂 Kategori','💰 Saldo','➕ Topup','📜 Riwayat','❓ Bantuan','👑 Admin'].includes(text)) return next();
+
+  // 0. Mode admin input (tambah/kurang saldo, search)
+  if (ctx.session.adminState) {
+    if (!admin.isAdmin(ctx.from.id)) { ctx.session.adminState = null; return next(); }
+    const state = ctx.session.adminState;
+    if (state.action === 'addsaldo' || state.action === 'subsaldo') {
+      const parts = text.split(/\s+/);
+      let targetId, nominalStr;
+      if (state.telegramId) {
+        targetId = state.telegramId;
+        nominalStr = parts[0];
+      } else {
+        if (parts.length < 2) { await ctx.reply('Format: `telegram_id nominal` contoh: `2110398202 50000`', { parse_mode: 'Markdown' }); return; }
+        targetId = parts[0];
+        nominalStr = parts[1];
+      }
+      const amount = parseRupiahInput(nominalStr);
+      if (!Number.isFinite(amount) || amount <= 0) { await ctx.reply('Nominal tidak valid.'); return; }
+      const finalAmount = state.action === 'subsaldo' ? -Math.abs(amount) : Math.abs(amount);
+      try {
+        const { newSaldo } = await admin.adminMutateSaldo({ telegramId: targetId, amount: finalAmount, reasonDesc: `Manual ${state.action} oleh admin ${ctx.from.id}` });
+        ctx.session.adminState = null;
+        await ctx.reply(`✅ ${state.action} ${formatRupiah(Math.abs(amount))} untuk ${targetId} berhasil. Saldo sekarang: ${formatRupiah(newSaldo)}`);
+        // notify user
+        try { await bot.api.sendMessage(Number(targetId), `💰 Saldo ${finalAmount>0?'ditambah':'dikurangi'} ${formatRupiah(Math.abs(amount))} oleh admin. Saldo sekarang: ${formatRupiah(newSaldo)}`); } catch (_) {}
+      } catch (e) { await ctx.reply('Gagal: '+e.message); }
+      return;
+    }
+    if (state.action === 'search') {
+      ctx.session.adminState = null;
+      try { await admin.handleSearch(ctx, text); } catch (e) { await ctx.reply('Gagal search: '+e.message); }
+      return;
+    }
+  }
 
   // 1. Mode tunggu nominal topup custom
   if (ctx.session.awaitingTopup) {
