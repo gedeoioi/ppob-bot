@@ -451,13 +451,15 @@ bot.callbackQuery(/^adm_refund:(.+)$/, async (ctx) => {
     await ctx.reply(`✅ Refund ${formatRupiah(oRes.rows[0].total_bayar)} untuk ${refId} berhasil.`);
   } catch (e) { await ctx.reply('Gagal refund: '+e.message); }
 });
-bot.callbackQuery(/^adm_topups:(\d+)$/, async (ctx) => {
+bot.callbackQuery(/^adm_topups(?::(\d+))?$/, async (ctx) => {
   if (!admin.isAdmin(ctx.from.id)) return;
-  await admin.sendTopups(ctx, parseInt(ctx.match[1],10));
+  const page = ctx.match[1] ? parseInt(ctx.match[1],10) : 0;
+  await admin.sendTopups(ctx, page);
 });
-bot.callbackQuery(/^adm_members:(\d+)$/, async (ctx) => {
+bot.callbackQuery(/^adm_members(?::(\d+))?$/, async (ctx) => {
   if (!admin.isAdmin(ctx.from.id)) return;
-  await admin.sendMembers(ctx, parseInt(ctx.match[1],10));
+  const page = ctx.match[1] ? parseInt(ctx.match[1],10) : 0;
+  await admin.sendMembers(ctx, page);
 });
 bot.callbackQuery(/^adm_user:(\d+)$/, async (ctx) => {
   if (!admin.isAdmin(ctx.from.id)) return;
@@ -515,13 +517,10 @@ bot.callbackQuery('adm_mutasi', async (ctx) => {
   const lines = rows.rows.map(r=>`${new Date(r.created_at).toLocaleString('id-ID')} | u${r.user_id} | ${r.amount>0?'+':''}${formatRupiah(r.amount)} | ${r.reason}`);
   await ctx.reply(lines.join('\n'));
 });
-bot.callbackQuery(/^adm_products:(\d+)$/, async (ctx) => {
+bot.callbackQuery(/^adm_products(?::(\d+))?$/, async (ctx) => {
   if (!admin.isAdmin(ctx.from.id)) return;
-  await admin.sendProductsAdmin(ctx, parseInt(ctx.match[1],10));
-});
-bot.callbackQuery('adm_products', async (ctx) => {
-  if (!admin.isAdmin(ctx.from.id)) return;
-  await admin.sendProductsAdmin(ctx, 0);
+  const page = ctx.match[1] ? parseInt(ctx.match[1],10) : 0;
+  await admin.sendProductsAdmin(ctx, page);
 });
 bot.callbackQuery(/^adm_prod:(.+)$/, async (ctx) => {
   if (!admin.isAdmin(ctx.from.id)) return;

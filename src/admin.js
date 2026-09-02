@@ -27,10 +27,10 @@ function escapeMd(s) {
 async function sendAdminPanel(ctx) {
   const stats = await getStats();
   const kb = new InlineKeyboard()
-    .text('📊 Statistik', 'adm_stats').text('📋 Transaksi', 'adm_orders').row()
-    .text('💰 Topup Pending', 'adm_topups').text('👥 Member', 'adm_members').row()
+    .text('📊 Statistik', 'adm_stats').text('📋 Transaksi', 'adm_orders:all:0').row()
+    .text('💰 Topup Pending', 'adm_topups:0').text('👥 Member', 'adm_members:0').row()
     .text('➕ Tambah Saldo', 'adm_addsaldo').text('🔍 Cari User', 'adm_search').row()
-    .text('📒 Mutasi', 'adm_mutasi').text('⚙️ Produk', 'adm_products').row()
+    .text('📒 Mutasi', 'adm_mutasi').text('⚙️ Produk', 'adm_products:0').row()
     .text('❌ Tutup', 'close_menu');
 
   const text =
