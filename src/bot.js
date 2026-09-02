@@ -821,10 +821,12 @@ async function notifyOrderResult(order) {
 }
 
 async function sendStatusHelp(ctx) {
-  const provider = require('./services/provider').currentProvider();
-  const providerNote = provider === 'tokovoucher'
-    ? 'Provider aktif: *TokoVoucher* — polling tiap 10 menit, webhook akan finalisasi otomatis. Jika saldo TokoVoucher tipis, transaksi bisa Pending lama.'
-    : 'Provider aktif: *Digiflazz* — polling tiap 2 menit.';
+  const cfg = require('./config');
+  const p = cfg.transactionProvider;
+  let providerNote;
+  if (p === 'both') providerNote = 'Mode *Hybrid (both)* — produk Digiflazz & TokoVoucher aktif bersamaan (per produk). Polling: Digiflazz 2 menit, TokoVoucher 10 menit.';
+  else if (p === 'tokovoucher') providerNote = 'Provider aktif: *TokoVoucher* — polling tiap 10 menit, webhook akan finalisasi otomatis.';
+  else providerNote = 'Provider aktif: *Digiflazz* — polling tiap 2 menit.';
   await ctx.reply(
     `ℹ️ *Status Transaksi*\n\n` +
     `${providerNote}\n\n` +

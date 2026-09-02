@@ -11,8 +11,7 @@
  */
 const db = require('../src/db');
 const digiflazz = require('../src/services/digiflazz');
-
-const MARKUP_DEFAULT = 500;
+const { calcMarkup } = require('../markup.config');
 
 async function main() {
   const brandFilter = process.argv[2]; // opsional, contoh: "Telkomsel"
@@ -35,18 +34,21 @@ async function main() {
   console.log(`Menyimpan ${toInsert.length} produk ke database...`);
 
   for (const p of toInsert) {
-    const hargaJual = Number(p.price) + MARKUP_DEFAULT;
+    const markup = calcMarkup(p.price);
+    const hargaJual = Number(p.price) + markup;
     await db.query(
-      `INSERT INTO products (buyer_sku_code, nama, kategori, brand, tipe, harga_beli, markup, harga_jual, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)
+      `INSERT INTO products (buyer_sku_code, nama, kategori, brand, tipe, harga_beli, markup, harga_jual, is_active, provider)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,'digiflazz')
        ON CONFLICT (buyer_sku_code) DO UPDATE SET
          nama = EXCLUDED.nama,
          harga_beli = EXCLUDED.harga_beli,
+         markup = EXCLUDED.markup,
          harga_jual = EXCLUDED.harga_jual,
+         provider = 'digiflazz',
          updated_at = now()`,
-      [p.buyer_sku_code, p.product_name, p.category, p.brand, p.type, p.price, MARKUP_DEFAULT, hargaJual]
+      [p.buyer_sku_code, p.product_name, p.category, p.brand, p.type, p.price, markup, hargaJual]
     );
-    console.log(`  - ${p.buyer_sku_code} | ${p.product_name} | Rp${hargaJual.toLocaleString('id-ID')}`);
+    console.log(`  - ${p.buyer_sku_code} | ${p.product_name} | beli Rp${Number(p.price).toLocaleString('id-ID')} + markup ${markup} = Rp${hargaJual.toLocaleString('id-ID')}`);
   }
 
   console.log('\nSelesai. Cek dengan: SELECT * FROM products;');

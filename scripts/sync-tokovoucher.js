@@ -6,8 +6,7 @@
  */
 const db = require('../src/db');
 const tokv = require('../src/services/tokovoucher');
-
-const MARKUP_DEFAULT = 500;
+const { calcMarkup } = require('../markup.config');
 
 async function main() {
   const kodeFilter = process.argv[2]; // misal FF
@@ -119,21 +118,24 @@ async function main() {
     nama = String(nama).replace(/\s+/g,' ').trim();
     if (nama.length > 64) nama = nama.slice(0, 62).trim() + '…';
     const price = Number(p.price || p.price_vip || 0);
-    const hargaJual = price + MARKUP_DEFAULT;
+    const markup = calcMarkup(price);
+    const hargaJual = price + markup;
 
     await db.query(
-      `INSERT INTO products (buyer_sku_code, nama, kategori, brand, tipe, harga_beli, markup, harga_jual, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)
+      `INSERT INTO products (buyer_sku_code, nama, kategori, brand, tipe, harga_beli, markup, harga_jual, is_active, provider)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,'tokovoucher')
        ON CONFLICT (buyer_sku_code) DO UPDATE SET
          nama = EXCLUDED.nama,
          kategori = EXCLUDED.kategori,
          brand = EXCLUDED.brand,
          harga_beli = EXCLUDED.harga_beli,
+         markup = EXCLUDED.markup,
          harga_jual = EXCLUDED.harga_jual,
+         provider = 'tokovoucher',
          updated_at = now()`,
-      [p.kode_produk, nama, kategori, brand, tipe, price, MARKUP_DEFAULT, hargaJual]
+      [p.kode_produk, nama, kategori, brand, tipe, price, markup, hargaJual]
     );
-    console.log(`  - ${p.kode_produk} | ${nama} | ${kategori} | Rp${hargaJual.toLocaleString('id-ID')}`);
+    console.log(`  - ${p.kode_produk} | ${nama} | ${kategori} | beli Rp${price.toLocaleString('id-ID')} + markup ${markup} = Rp${hargaJual.toLocaleString('id-ID')}`);
   }
   console.log('\nSelesai. Cek: SELECT buyer_sku_code, nama, harga_jual FROM products WHERE brand LIKE %Toko% LIMIT 10;');
   process.exit(0);

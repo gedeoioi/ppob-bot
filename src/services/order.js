@@ -33,7 +33,7 @@ async function createOrder({ userId, buyerSkuCode, customerNo }) {
   const totalBayar = Number(product.harga_jual) + kodeUnik;
   const expiredAt = new Date(Date.now() + config.app.orderExpiryMinutes * 60 * 1000);
 
-  const provider = providerRouter.currentProvider();
+  const provider = providerRouter.resolveProviderForProduct(product);
   const orderRes = await db.query(
     `INSERT INTO orders
       (ref_id, user_id, buyer_sku_code, customer_no, harga_jual, kode_unik, total_bayar, status, expired_at, provider, payment_source)
@@ -138,8 +138,8 @@ async function createOrderViaSaldo({ userId, buyerSkuCode, customerNo }) {
   const refId = generateRefId();
   const kodeUnik = 0;
 
-  // Insert order dengan payment_source saldo + provider aktif
-  const providerSaldo = providerRouter.currentProvider();
+  // Insert order dengan payment_source saldo + provider per-produk (hybrid)
+  const providerSaldo = providerRouter.resolveProviderForProduct(product);
   const orderRes = await db.query(
     `INSERT INTO orders (ref_id, user_id, buyer_sku_code, customer_no, harga_jual, kode_unik, total_bayar, status, expired_at, payment_source, provider)
       VALUES ($1,$2,$3,$4,$5,$6,$7,'processing', now() + interval '1 day', 'saldo', $8)
@@ -157,10 +157,8 @@ async function createOrderViaSaldo({ userId, buyerSkuCode, customerNo }) {
     description: `Pembayaran order ${refId} ${product.nama}`,
   });
 
-  // Langsung hit provider aktif (digiflazz / tokovoucher)
-  // Jika provider langsung return Gagal (nomor tujuan salah, produk tidak aktif) → apply langsung jadi failed + refund
-  // Jika provider throw / return Pending → biarkan processing agar polling/webhook bisa finalisasi
-  const providerSvc = providerRouter.getProviderService();
+  // Langsung hit provider per-order (hybrid aware)
+  const providerSvc = providerRouter.getProviderService(order.provider);
   let result;
   let earlyError = null;
   try {
@@ -173,13 +171,10 @@ async function createOrderViaSaldo({ userId, buyerSkuCode, customerNo }) {
   } catch (e) {
     const msg = String(e.message || '');
     const low = msg.toLowerCase();
-    // Transient kredensial → Pending (retry polling), jangan langsung failed
     if (/signature|ip not allow|kredensial/i.test(low)) {
       console.warn(`[orderViaSaldo] transient provider error, dibiarkan Pending: ${msg}`);
       return { order, digiflazzResult: { status: 'Pending', message: msg, sn: '' } };
     }
-    // Semua throw lain dari provider (termasuk yang sudah tidak di-map oleh tokovoucher) → anggap permanent Gagal
-    // Ini cegah kasus TokoVoucher nomor tujuan salah yang masih throw (sebelum fix) tetap Pending
     earlyError = e;
   }
 

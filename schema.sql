@@ -25,9 +25,11 @@ CREATE TABLE IF NOT EXISTS products (
     harga_beli      BIGINT NOT NULL,                -- harga dari Digiflazz
     markup          BIGINT NOT NULL DEFAULT 0,       -- markup tetap (rupiah)
     harga_jual      BIGINT NOT NULL,                 -- harga_beli + markup, di-cache, tetap re-validasi saat order
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE products ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'digiflazz';
+CREATE INDEX IF NOT EXISTS idx_products_provider ON products(provider);
 
 -- status order: pending_payment | paid | processing | success | failed | expired | cancelled
 CREATE TABLE IF NOT EXISTS orders (

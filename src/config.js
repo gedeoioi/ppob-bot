@@ -76,7 +76,7 @@ const cfg = {
 
   transactionProvider: (() => {
     const p = optional('TRANSACTION_PROVIDER', 'digiflazz').toLowerCase();
-    if (!['digiflazz', 'tokovoucher'].includes(p)) throw new Error('TRANSACTION_PROVIDER harus digiflazz atau tokovoucher');
+    if (!['digiflazz', 'tokovoucher', 'both'].includes(p)) throw new Error('TRANSACTION_PROVIDER harus digiflazz, tokovoucher, atau both (hybrid per produk)');
     return p;
   })(),
 

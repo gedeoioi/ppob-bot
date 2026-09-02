@@ -164,13 +164,15 @@ async function sendOrderDetail(ctx, refId) {
   const pay = await db.query('SELECT gateway_ref, status, amount FROM payments WHERE order_id=$1 ORDER BY id DESC LIMIT 1', [o.id]);
   const mut = await db.query("SELECT amount, reason FROM balance_mutations WHERE order_id=$1", [o.id]);
   const refunded = mut.rows.filter(r=>r.reason==='refund').length>0;
+  const providerLabel = o.provider === 'tokovoucher' ? 'TokoVoucher' : o.provider === 'digiflazz' ? 'Digiflazz' : (o.provider || '-');
 
   let text =
     `🔍 *Detail Order* \`${escapeMd(o.ref_id)}\`\n\n` +
     `User: ${escapeMd(o.full_name||'')} ${o.username?'(@'+escapeMd(o.username)+')':''} | tg ${o.telegram_id} | saldo ${formatRupiah(o.saldo)}\n` +
     `Produk: ${escapeMd(o.buyer_sku_code)} → ${escapeMd(o.customer_no)}\n` +
     `Harga: ${formatRupiah(o.harga_jual)} + kode ${o.kode_unik} = ${formatRupiah(o.total_bayar)}\n` +
-    `Status: ${escapeMd(o.status)} | Digiflazz: ${escapeMd(o.digiflazz_status||'-')} SN: ${escapeMd(o.digiflazz_sn||'-')}\n` +
+    `Provider: ${escapeMd(providerLabel)}${o.provider_trx_id ? ' | trx ' + escapeMd(o.provider_trx_id) : ''}\n` +
+    `Status: ${escapeMd(o.status)} | ${escapeMd(providerLabel)}: ${escapeMd(o.digiflazz_status||'-')} SN: ${escapeMd(o.digiflazz_sn||'-')}\n` +
     `Source: ${escapeMd(o.payment_source||'qris')} | refunded: ${refunded?'Ya':'Tidak'}\n` +
     `Created: ${new Date(o.created_at).toLocaleString('id-ID')} | Exp: ${new Date(o.expired_at).toLocaleString('id-ID')}\n`;
   if (pay.rows.length) text += `Payment: ${escapeMd(pay.rows[0].gateway_ref||'-')} | ${escapeMd(pay.rows[0].status)}\n`;

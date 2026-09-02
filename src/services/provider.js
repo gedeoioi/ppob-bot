@@ -18,9 +18,23 @@ function currentProvider() {
 }
 
 function getProviderServiceForOrder(order) {
-  // Per-order provider disimpan di orders.provider; fallback ke global jika kosong (order lama)
   const p = (order && order.provider ? String(order.provider) : currentProvider()).toLowerCase();
+  // Jika both tapi order.provider masih global 'both' (sebelum fix), fallback ke digiflazz
+  if (p === 'both') return getProviderService('digiflazz');
   return getProviderService(p);
 }
 
-module.exports = { getProviderService, currentProvider, getProviderServiceForOrder };
+function resolveProviderForProduct(product) {
+  const mode = currentProvider();
+  if (mode !== 'both') return mode;
+  // Hybrid: pakai kolom products.provider per produk; fallback ke digiflazz untuk produk lama tanpa provider
+  const pp = product && product.provider ? String(product.provider).toLowerCase() : '';
+  if (pp === 'tokovoucher' || pp === 'digiflazz') return pp;
+  return 'digiflazz';
+}
+
+function isHybrid() {
+  return currentProvider() === 'both';
+}
+
+module.exports = { getProviderService, currentProvider, getProviderServiceForOrder, resolveProviderForProduct, isHybrid };
