@@ -135,17 +135,36 @@ bot.on('message:text', async (ctx, next) => {
       customerNo,
     });
 
-    const qrImageBuffer = await QRCode.toBuffer(qrString, { width: 400, margin: 2 });
+    // PAYMENT_MOCK=true menghasilkan qrString "MOCK-QRIS|..." yang tetap bisa di-QR,
+    // tapi tidak bisa dipindai beneran — fallback kirim sebagai teks jika render gagal
+    let qrImageBuffer = null;
+    try {
+      qrImageBuffer = await QRCode.toBuffer(qrString, { width: 400, margin: 2 });
+    } catch (e) {
+      logger.warn({ err: e.message }, '[bot] QR render gagal, fallback ke teks');
+    }
 
-    await ctx.replyWithPhoto({ source: qrImageBuffer }, {
-      caption:
-        `Order dibuat!\n` +
-        `Kode: ${order.ref_id}\n` +
-        `Tujuan: ${customerNo}\n` +
-        `Total bayar: Rp${Number(order.total_bayar).toLocaleString('id-ID')}\n\n` +
-        `Silakan scan QRIS di atas. Bayar TEPAT sesuai nominal (termasuk 3 digit terakhir) ` +
-        `agar sistem verifikasi otomatis. QR berlaku ${config.app.orderExpiryMinutes} menit.`,
-    });
+    const caption =
+      `Order dibuat!\n` +
+      `Kode: ${order.ref_id}\n` +
+      `Tujuan: ${customerNo}\n` +
+      `Total bayar: Rp${Number(order.total_bayar).toLocaleString('id-ID')}\n\n` +
+      `Silakan scan QRIS di atas. Bayar TEPAT sesuai nominal (termasuk 3 digit terakhir) ` +
+      `agar sistem verifikasi otomatis. QR berlaku ${config.app.orderExpiryMinutes} menit.` +
+      (config.payment.mock ? `\n\n⚠️ MODE MOCK: QR dummy tidak bisa dibayar beneran. Simulasi bayar: node scripts/test-webhook.js ${order.ref_id}` : '');
+
+    if (qrImageBuffer) {
+      const { InputFile } = require('grammy');
+      try {
+        await ctx.replyWithPhoto(new InputFile(qrImageBuffer, 'qris.png'), { caption });
+      } catch (e) {
+        // grammy 1.24: InputFile(Buffer) kadang lempar "wrong remote file identifier" jika buffer tidak di-wrap benar
+        logger.warn({ err: e.message }, '[bot] sendPhoto gagal, fallback ke teks');
+        await ctx.reply(caption + `\n\nQR string:\n\`${qrString}\``, { parse_mode: 'Markdown' });
+      }
+    } else {
+      await ctx.reply(caption + `\n\nQR string:\n\`${qrString}\``, { parse_mode: 'Markdown' });
+    }
   } catch (err) {
     logger.error({ err: err.message, userId: ctx.from.id, sku: pendingSku }, '[bot] gagal membuat order');
     const msg = err.message.includes('tidak ditemukan') ? err.message : 'Maaf, terjadi kendala saat membuat order. Silakan coba lagi.';

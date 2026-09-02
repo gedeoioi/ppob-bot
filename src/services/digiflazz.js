@@ -55,14 +55,20 @@ async function topup({ orderId, refId, buyerSkuCode, customerNo }) {
 
   let responseData;
   try {
-    const { data } = await axios.post(`${baseUrl}/transaction`, payload);
+    const { data } = await axios.post(`${baseUrl}/transaction`, payload, { timeout: 15000 });
     responseData = data;
   } catch (err) {
-    // Digiflazz kadang balas HTTP non-2xx (400/500) dengan body JSON yang tetap
-    // berisi detail errornya di err.response.data - itu yang penting untuk debug,
-    // BUKAN objek axios error yang panjang dan bikin bingung di console.
     responseData = err.response?.data || { error: err.message };
-    console.error('[digiflazz:topup] Request gagal. Response dari Digiflazz:', JSON.stringify(responseData, null, 2));
+    // rc 41 = Signature salah — hampir pasti username/apiKey salah atau ada spasi/BOM
+    if (responseData?.data?.rc === '41' || responseData?.data?.message?.toLowerCase().includes('signature')) {
+      console.error(
+        `[digiflazz:topup] Signature salah untuk ref ${refId}. ` +
+          `Cek DIGIFLAZZ_USERNAME/DIGIFLAZZ_API_KEY di .env (tanpa spasi, tanpa prefix dev- jika dashboard tidak pakai dev-), ` +
+          `sign yang dikirim=${payload.sign} (md5(username+apiKey+ref_id)). ` +
+          `Pricelist bisa sukses tapi transaction tetap 41 jika kredensial tidak sinkron / belum whitelabel.`
+      );
+    }
+    console.error('[digiflazz:topup] Response dari Digiflazz:', JSON.stringify(responseData, null, 2));
   }
 
   await db.query(
@@ -75,7 +81,7 @@ async function topup({ orderId, refId, buyerSkuCode, customerNo }) {
     throw new Error(`Digiflazz tidak mengembalikan data yang valid: ${JSON.stringify(responseData)}`);
   }
 
-  return responseData.data; // { ref_id, status: 'Sukses'|'Gagal'|'Pending', sn, message, rc, ... }
+  return responseData.data;
 }
 
 /**
@@ -102,11 +108,14 @@ async function checkStatus({ orderId, refId, buyerSkuCode, customerNo }) {
 
   let responseData;
   try {
-    const { data } = await axios.post(`${baseUrl}/transaction`, payload);
+    const { data } = await axios.post(`${baseUrl}/transaction`, payload, { timeout: 15000 });
     responseData = data;
   } catch (err) {
     responseData = err.response?.data || { error: err.message };
-    console.error('[digiflazz:checkStatus] Request gagal. Response dari Digiflazz:', JSON.stringify(responseData, null, 2));
+    if (responseData?.data?.rc === '41') {
+      console.error(`[digiflazz:checkStatus] Signature salah untuk ref ${refId} — kredensial tidak sinkron.`);
+    }
+    console.error('[digiflazz:checkStatus] Response dari Digiflazz:', JSON.stringify(responseData, null, 2));
   }
 
   await db.query(
