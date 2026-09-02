@@ -139,6 +139,40 @@ async function main() {
   process.exit(0);
 }
 
+async function resetKategori() {
+  console.log('Reset kategori: gabung semua kategori lama ke mapping baru (tidak hapus produk)...');
+  const MAP = {
+    'Games': '🎮 Topup Game',
+    'Topup Game': '🎮 Topup Game',
+    'Voucher Game': '🎮 Voucher Game',
+    'Pulsa': '📱 Pulsa',
+    'Masa Aktif': '📱 Pulsa',
+    'Telpon & SMS': '📱 Pulsa',
+    'Aktivasi Perdana': '📱 Pulsa',
+    'Philippines Topup': '🌏 Topup Luar Negeri',
+    'Singapore Topup': '🌏 Topup Luar Negeri',
+    'Paket Data': '📶 Paket Data',
+    'Data': '📶 Paket Data',
+    'Voucher Data': '📶 Paket Data',
+    'PLN': '⚡ PLN',
+    'E-Money': '💳 E-Wallet',
+    'Transfer Dana': '💳 E-Wallet',
+    'Pascabayar': '🧾 Pascabayar',
+    'TV': '📺 TV & Hiburan',
+    'Hiburan': '📺 TV & Hiburan',
+    'Injek Voucher Kosong': '📦 Lainnya',
+  };
+  for (const [oldKat, newKat] of Object.entries(MAP)) {
+    const r = await db.query('UPDATE products SET kategori=$1, updated_at=now() WHERE kategori=$2', [newKat, oldKat]);
+    if (r.rowCount > 0) console.log(`  ${oldKat} -> ${newKat} : ${r.rowCount} produk`);
+  }
+  console.log('Reset selesai. Jalankan ulang check-kategori untuk verifikasi.');
+}
+
+if (process.argv.includes('--reset-kategori')) {
+  resetKategori().then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1);});
+}
+
 main().catch(err => {
   console.error('Gagal sync tokvoucher:', err.response?.data || err.message);
   process.exit(1);
