@@ -3,8 +3,9 @@ WORKDIR /app
 RUN apk add --no-cache dumb-init
 
 FROM base AS deps
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts
+COPY package.json ./
+COPY package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev --ignore-scripts; else npm install --omit=dev --ignore-scripts; fi
 
 FROM base AS runner
 ENV NODE_ENV=production
