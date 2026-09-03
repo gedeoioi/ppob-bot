@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="color-scheme" content="light dark"/>
+<title>PPOB Bot — Pulsa, Paket Data & Voucher Game via Telegram</title>
+<meta name="description" content="Bot Telegram PPOB: beli pulsa, paket data, PLN, voucher game & e-wallet langsung dari Telegram. Bayar QRIS atau saldo."/>
+<style>
+  :root{
+    --bg:#f8fafc; --surface:#ffffff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
+    --accent:#0ea5e9; --accent-2:#6366f1; --ok:#0ea75a; --radius:16px;
+    --shadow:0 10px 30px rgba(15,23,42,.08); --shadow-lg:0 20px 50px rgba(15,23,42,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0b1220; --surface:#0f172a; --text:#e2e8f0; --muted:#94a3b8; --line:#1e293b; --shadow:0 10px 30px rgba(0,0,0,.35); --shadow-lg:0 20px 50px rgba(0,0,0,.45);}
+  }
+  *{box-sizing:border-box} html{scroll-behavior:smooth}
+  body{margin:0;font:16px/1.6 ui-sans-system,system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial;color:var(--text);background:var(--bg)}
+  a{color:inherit}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+  header{position:sticky;top:0;z-index:20;backdrop-filter:saturate(1.2) blur(10px);background:color-mix(in srgb, var(--bg) 80%, transparent);border-bottom:1px solid var(--line)}
+  .nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.2px}
+  .logo{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:grid;place-items:center;color:#fff;font-weight:900;box-shadow:var(--shadow)}
+  .nav a.btn{padding:10px 16px;border-radius:999px;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;text-decoration:none;font-weight:700;box-shadow:var(--shadow)}
+  .nav-links{display:flex;gap:18px;align-items:center}
+  .nav-links a{color:var(--muted);text-decoration:none;font-weight:600}
+  .nav-links a:hover{color:var(--text)}
+  @media (max-width:780px){ .nav-links{display:none} }
+  .hero{padding:56px 0 28px}
+  .hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:28px;align-items:center}
+  @media (max-width:980px){ .hero-grid{grid-template-columns:1fr} }
+  .eyebrow{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--muted);font-weight:700;font-size:13px}
+  .eyebrow i{width:8px;height:8px;border-radius:999px;background:var(--ok);display:inline-block;animation:pulse 2s infinite}
+  @keyframes pulse{0%{opacity:.6}50%{opacity:1}100%{opacity:.6}}
+  h1{margin:14px 0 12px;font-size:42px;line-height:1.08;letter-spacing:-.02em}
+  @media (max-width:520px){ h1{font-size:32px} }
+  .lead{color:var(--muted);font-size:18px;max-width:60ch}
+  .cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
+  .btn{display:inline-flex;align-items:center;gap:10px;padding:12px 18px;border-radius:14px;border:1px solid var(--line);background:var(--surface);text-decoration:none;font-weight:800;box-shadow:var(--shadow)}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;border-color:transparent;box-shadow:var(--shadow-lg)}
+  .badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted);font-weight:700}
+  .phone{position:relative;background:linear-gradient(180deg, #0ea5e9 0%, #6366f1 55%, #06b6d4 100%);border-radius:28px;padding:14px;box-shadow:var(--shadow-lg);overflow:hidden}
+  .phone::after{content:"";position:absolute;inset:0;background:radial-gradient(600px 220px at 70% -10%, rgba(255,255,255,.35), transparent 60%)}
+  .screen{background:var(--surface);border-radius:20px;padding:16px;position:relative;z-index:1}
+  .chat{display:flex;flex-direction:column;gap:10px;font-size:14px}
+  .bubble{max-width:86%;padding:10px 12px;border-radius:16px;border:1px solid var(--line);background:var(--bg)}
+  .bubble.me{align-self:flex-end;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;border-color:transparent}
+  .bubble small{display:block;opacity:.8;margin-top:6px}
+  .kbd{display:inline-flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .kbd span{padding:6px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-weight:700;font-size:12px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
+  @media (max-width:780px){ .stats{grid-template-columns:repeat(2,1fr)} }
+  .stat{padding:16px;border-radius:16px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}
+  .stat strong{font-size:22px}
+  .stat p{margin:4px 0 0;color:var(--muted);font-weight:600;font-size:13px}
+  section{padding:28px 0}
+  .eyetitle{color:var(--accent-2);font-weight:800;letter-spacing:.12em;font-size:12px;text-transform:uppercase}
+  h2{margin:6px 0 8px;font-size:30px;letter-spacing:-.02em}
+  .muted{color:var(--muted)}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media (max-width:980px){ .grid3{grid-template-columns:1fr} }
+  .card{padding:18px;border-radius:18px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;counter-reset:step}
+  @media (max-width:980px){ .steps{grid-template-columns:1fr} }
+  .step{position:relative;padding:18px;border-radius:18px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}
+  .step::before{counter-increment:step;content:counter(step);position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:999px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;font-weight:800;font-size:12px}
+  .tag{display:inline-flex;padding:4px 8px;border-radius:999px;font-weight:800;font-size:11px;border:1px solid var(--line);background:color-mix(in srgb, var(--ok) 14%, var(--surface));color:var(--ok);border-color:color-mix(in srgb, var(--ok) 30%, var(--line))}
+  details{padding:16px;border-radius:16px;background:var(--surface);border:1px solid var(--line)}
+  details+details{margin-top:10px}
+  summary{cursor:pointer;font-weight:800;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  footer{padding:28px 0 40px;border-top:1px solid var(--line);margin-top:16px;color:var(--muted)}
+  .footgrid{display:grid;grid-template-columns:1.2fr .8fr;gap:20px}
+  @media (max-width:860px){ .footgrid{grid-template-columns:1fr} }
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="logo">⚡</span> PPOB Bot</div>
+    <nav class="nav-links">
+      <a href="#cara">Cara pakai</a>
+      <a href="#deposit">Deposit</a>
+      <a href="#produk">Produk</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn" href="https://t.me/PPOB_bot" id="cta-top">Buka di Telegram →</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow"><i></i> Online • QRIS & saldo • Bot Telegram</span>
+        <h1>Pulsa, paket data & voucher game — <span style="background:linear-gradient(135deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent">langsung dari Telegram</span></h1>
+        <p class="lead">Tanpa aplikasi tambahan. Pilih produk, masukkan nomor tujuan, lalu bayar via <b>QRIS</b> atau <b>saldo</b> — bot proses otomatis.</p>
+        <div class="cta">
+          <a class="btn primary" href="https://t.me/PPOB_bot" id="cta-hero">Mulai di Telegram — /start</a>
+          <a class="btn" href="#cara">Lihat cara pakai</a>
+        </div>
+        <div class="badges">
+          <span class="badge">⚡ Proses cepat</span>
+          <span class="badge">💬 Chat Telegram</span>
+          <span class="badge">24 jam</span>
+        </div>
+      </div>
+
+      <div class="phone" aria-hidden="true">
+        <div class="screen">
+          <div class="chat">
+            <div class="bubble">👋 Selamat datang di PPOB Bot!<br/>💰 Saldo: Rp27.000<br/><small>Pilih menu di bawah.</small></div>
+            <div class="kbd"><span>🛒 Produk</span><span>📂 Kategori</span><span>💰 Saldo</span><span>➕ Topup</span></div>
+            <div class="bubble me">/produk <small>kamu</small></div>
+            <div class="bubble">🛒 Daftar Produk — hal 1/5<br/>──── 🎮 Topup Game ────<br/>FF 5 Diamond Rp1.900 • ML 86 Diamond Rp23.400<br/><small>Pilih produk, masukkan nomor tujuan</small></div>
+            <div class="bubble me">0812xxxxxxx <small>kamu</small></div>
+            <div class="bubble">📦 Konfirmasi<br/>Produk: FF 5 Diamond<br/>Tujuan: 0812xxxxxxx<br/>Harga: Rp1.900<br/>Saldo: Rp27.000<br/>
+              <div class="kbd"><span>💳 Bayar QRIS</span><span>💰 Bayar Saldo</span></div>
+            </div>
+            <div class="bubble me">💰 Bayar Saldo <small>kamu</small></div>
+            <div class="bubble">✅ Transaksi berhasil!<br/>Kode: ORD… • SN: 1234567890</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><strong>QRIS</strong><p>Scan QR, bayar tepat nominal</p></div>
+      <div class="stat"><strong>Saldo</strong><p>Topup sekali, transaksi instan</p></div>
+      <div class="stat"><strong>Otomatis</strong><p>Pilih → tujuan → bayar</p></div>
+      <div class="stat"><strong>24 jam</strong><p>Siap kapan saja di Telegram</p></div>
+    </div>
+  </div>
+
+  <section id="cara">
+    <div class="eyetitle">Cara kerja</div>
+    <h2>3 langkah, selesai dalam 1 menit</h2>
+    <p class="muted">Alur yang sama untuk pulsa, paket data, PLN, voucher game & e-wallet.</p>
+    <div class="steps">
+      <div class="step"><h3>1 — Pilih produk</h3><p class="muted">Ketik <span class="mono">/produk</span> atau tap <b>🛒 Produk</b> → pilih kategori → pilih produk.</p></div>
+      <div class="step"><h3>2 — Masukkan tujuan</h3><p class="muted">Kirim nomor HP / ID game / ID PLN. Bot akan menampilkan tombol <b>Bayar QRIS</b> & <b>Bayar Saldo</b>.</p></div>
+      <div class="step"><h3>3 — Bayar</h3><p class="muted"><b>QRIS:</b> scan QR dan bayar tepat nominal. <b>Saldo:</b> potong instan. Bot proses otomatis & kirim notifikasi.</p></div>
+    </div>
+    <div class="card" style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span class="tag">Tips</span>
+      <span class="muted">Gunakan <b>/kategori</b> untuk filter, <b>/riwayat</b> untuk cek transaksi terakhir, <b>/batal</b> untuk batalkan input.</span>
+    </div>
+  </section>
+
+  <section id="deposit">
+    <div class="eyetitle">Deposit & saldo</div>
+    <h2>Isi saldo via QRIS</h2>
+    <div class="grid3">
+      <div class="card"><h3>➕ Topup</h3><p class="muted">Tap <b>➕ Topup</b> atau <span class="mono">/topup</span> → pilih nominal 10K/20K/50K/100K atau ketik manual (mis. <span class="mono">50k</span>).</p></div>
+      <div class="card"><h3>🔍 Bayar QRIS</h3><p class="muted">Dapat QR & total bayar (termasuk kode unik). Bayar <b>tepat</b> nominal agar terverifikasi otomatis.</p></div>
+      <div class="card"><h3>💰 Saldo masuk</h3><p class="muted">Setelah pembayaran sukses, saldo otomatis bertambah. Cek di <span class="mono">/saldo</span> & <span class="mono">/mutasi</span>.</p></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>Dua cara bayar</h3>
+      <p class="muted"><b>QRIS</b> — cocok untuk pembeli sesekali (butuh scan & bayar). <b>Saldo</b> — cocok untuk yang sering transaksi (potong instan, tanpa QR).</p>
+    </div>
+  </section>
+
+  <section id="produk">
+    <div class="eyetitle">Katalog</div>
+    <h2>Produk yang tersedia</h2>
+    <p class="muted">Pilih kategori, lalu produk — kategori yang tidak perlu bisa dinonaktifkan tanpa hapus data.</p>
+    <div class="grid3">
+      <div class="card"><h3>🎮 Topup Game</h3><p class="muted">Free Fire, MLBB, PUBG, Genshin, Valorant, dll.</p></div>
+      <div class="card"><h3>📱 Pulsa & 📶 Paket Data</h3><p class="muted">Telkomsel, XL, Axis, Indosat, Tri, Smartfren, by.U — pulsa, paket data, masa aktif.</p></div>
+      <div class="card"><h3>⚡ PLN & 💳 E-Wallet</h3><p class="muted">Token PLN, transfer dana, topup e-wallet.</p></div>
+      <div class="card"><h3>📺 TV & Hiburan</h3><p class="muted">Voucher TV, hiburan & langganan.</p></div>
+      <div class="card"><h3>🧾 Pascabayar</h3><p class="muted">Tagihan pascabayar & layanan tagihan.</p></div>
+      <div class="card"><h3>📦 Lainnya</h3><p class="muted">Kategori lain yang tersedia di katalog.</p></div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="eyetitle">FAQ</div>
+    <h2>Pertanyaan umum</h2>
+    <details open><summary>Bagaimana cara transaksi?</summary><p class="muted"><span class="mono">/produk</span> → pilih produk → masukkan nomor tujuan → pilih <b>Bayar QRIS</b> atau <b>Bayar Saldo</b> → bot proses & kirim notifikasi.</p></details>
+    <details><summary>Bagaimana cara deposit / isi saldo?</summary><p class="muted"><span class="mono">/topup</span> atau tombol <b>➕ Topup</b> → pilih nominal → scan QRIS → bayar tepat nominal → saldo otomatis masuk (cek <span class="mono">/saldo</span>).</p></details>
+    <details><summary>Apa bedanya QRIS dan Saldo?</summary><p class="muted"><b>QRIS</b> butuh scan tiap transaksi. <b>Saldo</b> potong instan setelah topup — lebih cepat untuk transaksi berulang.</p></details>
+    <details><summary>QRIS expired?</summary><p class="muted">QR berlaku 15 menit. Jika lewat, buat order baru.</p></details>
+    <details><summary>Perintah apa saja yang tersedia?</summary><p class="muted"><span class="mono">/start</span> menu, <span class="mono">/produk</span>, <span class="mono">/kategori</span>, <span class="mono">/saldo</span>, <span class="mono">/topup</span>, <span class="mono">/riwayat</span>, <span class="mono">/bantuan</span>, <span class="mono">/batal</span>.</p></details>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap footgrid">
+    <div>
+      <div class="brand"><span class="logo">⚡</span> PPOB Bot</div>
+      <p>Bot Telegram PPOB — transaksi pulsa, paket data, voucher game & tagihan langsung dari Telegram.</p>
+    </div>
+    <div>
+      <p><b>Perintah Telegram</b></p>
+      <p class="mono" style="font-size:13px;line-height:1.8">
+        /start — menu utama<br/>
+        /produk — daftar produk<br/>
+        /kategori — filter kategori<br/>
+        /saldo — cek saldo<br/>
+        /topup — isi saldo QRIS<br/>
+        /riwayat — riwayat transaksi<br/>
+        /bantuan — bantuan<br/>
+        /batal — batalkan input
+      </p>
+    </div>
+  </div>
+  <div class="wrap" style="margin-top:16px;font-size:12px">© <span id="year"></span> PPOB Bot • Transaksi cepat via Telegram.</div>
+</footer>
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+  const BOT_USERNAME = 'Artapedia_bot';
+  document.querySelectorAll('[href*="PPOB_bot"]').forEach(a=> a.href = 'https://t.me/' + BOT_USERNAME);
+</script>
+</body>
+</html>

@@ -12,6 +12,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY src ./src
 COPY scripts ./scripts
+COPY public ./public
+COPY markup.config.js ./
 COPY schema.sql ./
 # Non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup && chown -R appuser:appgroup /app

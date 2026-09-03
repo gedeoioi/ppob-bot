@@ -2,6 +2,7 @@ const express = require('express');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const pinoHttp = require('pino-http');
+const path = require('path');
 const db = require('./db');
 const redis = require('./db/redis');
 const payment = require('./services/payment');
@@ -180,6 +181,10 @@ function createWebhookApp({ onOrderSuccess, onOrderFailed } = {}) {
       res.status(503).json({ ok: false, error: err.message });
     }
   });
+
+  // Landing page — serve static dari /public, fallback ke index.html untuk "/"
+  app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', etag: true }));
+  app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
