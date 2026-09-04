@@ -324,31 +324,85 @@ async function handleSearch(ctx, query){
 }
 
 // ── Products admin ───────────────────────────────────────────────
-async function sendProductsAdmin(ctx, page=0){
+async function sendProductsAdmin(ctx, page=0, providerFilter='all'){
   const limit=8, offset=page*limit;
-  const total=(await db.query('SELECT COUNT(*)::int c FROM products')).rows[0].c;
+  const where = providerFilter==='all' ? '1=1' : 'provider = $1';
+  const countParams = providerFilter==='all' ? [] : [providerFilter];
+  const total=(await db.query(`SELECT COUNT(*)::int c FROM products WHERE ${providerFilter==='all'?'1=1':'provider=$1'}`, countParams)).rows[0].c;
   const totalPages=Math.max(1,Math.ceil(total/limit));
-  const res=await db.query('SELECT buyer_sku_code, nama, harga_jual, is_active FROM products ORDER BY nama LIMIT $1 OFFSET $2',[limit,offset]);
-  let text=`⚙️ *Produk* hal ${page+1}/${totalPages} (total ${total})\n\n`;
+  if(page<0) page=0; if(page>=totalPages) page=totalPages-1;
+  const params = providerFilter==='all' ? [limit, offset] : [providerFilter, limit, offset];
+  const whereClause = providerFilter==='all' ? '' : 'WHERE provider = $1';
+  const res=await db.query(`SELECT buyer_sku_code, nama, harga_jual, is_active, provider, kategori FROM products ${whereClause} ORDER BY nama LIMIT $${providerFilter==='all'?1:2} OFFSET $${providerFilter==='all'?2:3}`, params);
+  const counts = await db.query(`SELECT provider, COUNT(*)::int c FROM products GROUP BY provider`);
+  const countMap = {}; for(const r of counts.rows) countMap[r.provider]=r.c;
+  let text=`⚙️ *Produk* [${providerFilter}] hal ${page+1}/${totalPages} (total ${total})\n`;
+  text+=`Digiflazz: ${countMap.digiflazz||0} | TokoVoucher: ${countMap.tokovoucher||0}\n\n`;
+  if(res.rows.length===0) text+='_Tidak ada produk_';
   for(const p of res.rows){
-    text+=`${p.is_active?'✅':'❌'} \`${escapeMd(p.buyer_sku_code)}\` ${escapeMd(p.nama)} ${formatRupiah(p.harga_jual)}\n`;
+    const prov = p.provider==='tokovoucher'?'🎮':'📱';
+    text+=`${p.is_active?'✅':'❌'}${prov} \`${escapeMd(p.buyer_sku_code)}\` ${escapeMd(p.nama)} ${formatRupiah(p.harga_jual)}\n`;
   }
-  const kb=new InlineKeyboard();
+  const kb=new InlineKeyboard()
+    .text('Semua', `adm_products:all:0`).text('📱 Digiflazz', `adm_products:digiflazz:0`).text('🎮 TokoVoucher', `adm_products:tokovoucher:0`).row();
   for(let i=0;i<Math.min(4,res.rows.length);i++){
     const p=res.rows[i];
     kb.text(`${p.is_active?'✅':'❌'} ${p.buyer_sku_code.slice(0,8)}`, `adm_prod:${p.buyer_sku_code}`);
     if(i%2===1) kb.row();
   }
   if(res.rows.length%2===1) kb.row();
+  // Menu manajemen produk
+  kb.text('➕ Tambah Produk', 'adm_prod_add').text('🔄 Reset Kategori', 'adm_kat_reset').row();
   if(totalPages>1){
-    if(page>0) kb.text('⬅️ Prev',`adm_products:${page-1}`);
+    if(page>0) kb.text('⬅️ Prev',`adm_products:${providerFilter}:${page-1}`);
     kb.text(`${page+1}/${totalPages}`,'noop');
-    if(page<totalPages-1) kb.text('Next ➡️',`adm_products:${page+1}`);
+    if(page<totalPages-1) kb.text('Next ➡️',`adm_products:${providerFilter}:${page+1}`);
     kb.row();
   }
   kb.text('⬅️ Panel','adm_panel').text('❌ Tutup','close_menu');
   try{await ctx.editMessageText(text,{parse_mode:'Markdown',reply_markup:kb});await ctx.answerCallbackQuery();}
   catch(_){await ctx.reply(text,{parse_mode:'Markdown',reply_markup:kb});}
+}
+
+// Reset kategori TokoVoucher ke mapping rapi (dipakai dari admin)
+async function resetKategoriMapping() {
+  const MAP = {
+    'Games': '🎮 Topup Game', 'Topup Game': '🎮 Topup Game', 'Voucher Game': '🎮 Voucher Game',
+    'Pulsa': '📱 Pulsa', 'Masa Aktif': '📱 Pulsa', 'Telpon & SMS': '📱 Pulsa', 'Aktivasi Perdana': '📱 Pulsa',
+    'Philippines Topup': '🌏 Topup Luar Negeri', 'Singapore Topup': '🌏 Topup Luar Negeri',
+    'Paket Data': '📶 Paket Data', 'Data': '📶 Paket Data', 'Voucher Data': '📶 Paket Data',
+    'PLN': '⚡ PLN', 'E-Money': '💳 E-Wallet', 'Transfer Dana': '💳 E-Wallet',
+    'Pascabayar': '🧾 Pascabayar', 'TV': '📺 TV & Hiburan', 'Hiburan': '📺 TV & Hiburan',
+    'Injek Voucher Kosong': '📦 Lainnya',
+  };
+  let total = 0;
+  const details = [];
+  for (const [oldKat, newKat] of Object.entries(MAP)) {
+    if (oldKat === newKat) continue;
+    const r = await db.query('UPDATE products SET kategori=$1, updated_at=now() WHERE kategori=$2', [newKat, oldKat]);
+    if (r.rowCount > 0) { total += r.rowCount; details.push(`${oldKat} → ${newKat}: ${r.rowCount}`); }
+  }
+  return { total, details };
+}
+
+// Tambah produk manual oleh admin (dipakai bot handler via adminState)
+async function addProductManual({ sku, nama, kategori, brand, hargaBeli, hargaJual, provider }) {
+  const prov = String(provider||'').toLowerCase();
+  if (!['digiflazz','tokovoucher'].includes(prov)) throw new Error('Provider harus digiflazz atau tokovoucher');
+  if (!sku || !nama) throw new Error('SKU dan nama wajib diisi');
+  const beli = Number(hargaBeli);
+  const jual = Number(hargaJual || (beli + 500));
+  if (!Number.isFinite(beli) || beli < 0) throw new Error('Harga beli tidak valid');
+  if (!Number.isFinite(jual) || jual <= 0) throw new Error('Harga jual tidak valid');
+  const markup = jual - beli;
+  await db.query(
+    `INSERT INTO products (buyer_sku_code, nama, kategori, brand, tipe, harga_beli, markup, harga_jual, is_active, provider)
+     VALUES ($1,$2,$3,$4,'prepaid',$5,$6,$7,true,$8)
+     ON CONFLICT (buyer_sku_code) DO UPDATE SET nama=EXCLUDED.nama, kategori=EXCLUDED.kategori, brand=EXCLUDED.brand,
+       harga_beli=EXCLUDED.harga_beli, markup=EXCLUDED.markup, harga_jual=EXCLUDED.harga_jual, provider=EXCLUDED.provider, is_active=true, updated_at=now()`,
+    [sku.trim(), nama.trim(), (kategori||'📦 Lainnya').trim(), (brand||'-').trim(), beli, markup, jual, prov]
+  );
+  return { sku, nama, kategori, hargaJual: jual, provider: prov };
 }
 
 module.exports = {
@@ -361,6 +415,8 @@ module.exports = {
   sendMembers,
   sendUserDetail,
   sendProductsAdmin,
+  resetKategoriMapping,
+  addProductManual,
   handleSearch,
   adminMutateSaldo,
   getStats,

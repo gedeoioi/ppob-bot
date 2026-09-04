@@ -525,10 +525,62 @@ bot.callbackQuery('adm_mutasi', async (ctx) => {
   const lines = rows.rows.map(r=>`${new Date(r.created_at).toLocaleString('id-ID')} | u${r.user_id} | ${r.amount>0?'+':''}${formatRupiah(r.amount)} | ${r.reason}`);
   await ctx.reply(lines.join('\n'));
 });
-bot.callbackQuery(/^adm_products(?::(\d+))?$/, async (ctx) => {
+bot.callbackQuery(/^adm_products(?::([^:]+))?(?::(\d+))?$/, async (ctx) => {
   if (!admin.isAdmin(ctx.from.id)) return;
-  const page = ctx.match[1] ? parseInt(ctx.match[1],10) : 0;
-  await admin.sendProductsAdmin(ctx, page);
+  // dukung format lama adm_products:0 dan baru adm_products:digiflazz:0
+  let filter = 'all', page = 0;
+  if (ctx.match[2] !== undefined) {
+    filter = ctx.match[1] || 'all';
+    page = parseInt(ctx.match[2], 10) || 0;
+  } else if (ctx.match[1] !== undefined) {
+    if (/^\d+$/.test(ctx.match[1])) page = parseInt(ctx.match[1], 10) || 0;
+    else filter = ctx.match[1];
+  }
+  await admin.sendProductsAdmin(ctx, page, filter);
+});
+bot.callbackQuery('adm_prod_add', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await ctx.answerCallbackQuery();
+  const kb = new (require('grammy').InlineKeyboard)()
+    .text('📱 Digiflazz', 'adm_prod_add:digiflazz').text('🎮 TokoVoucher', 'adm_prod_add:tokovoucher').row()
+    .text('⬅️ Produk', 'adm_products:all:0').text('⬅️ Panel', 'adm_panel');
+  await ctx.reply('➕ *Tambah Produk* — pilih provider sumber SKU:', { parse_mode: 'Markdown', reply_markup: kb });
+});
+bot.callbackQuery(/^adm_prod_add:(digiflazz|tokovoucher)$/, async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  const provider = ctx.match[1];
+  ctx.session.adminState = { action: 'addproduct', provider };
+  await ctx.answerCallbackQuery();
+  await ctx.reply(
+    `➕ Tambah produk *${provider === 'digiflazz' ? '📱 Digiflazz' : '🎮 TokoVoucher'}*\n\n` +
+    `Kirim dengan format (pisahkan dengan \`|\`):\n` +
+    `\`SKU | Nama | Kategori | Brand | HargaBeli | HargaJual\`\n\n` +
+    `Contoh:\n\`tsel5k | Telkomsel 5.000 | 📱 Pulsa | Telkomsel | 5190 | 5990\`\n` +
+    `HargaJual boleh dikosongkan (= beli + 500). Ketik /batal untuk batalkan.`,
+    { parse_mode: 'Markdown' }
+  );
+});
+bot.callbackQuery('adm_kat_reset', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await ctx.answerCallbackQuery();
+  const kb = new (require('grammy').InlineKeyboard)()
+    .text('✅ Ya, reset', 'adm_kat_reset_yes').text('❌ Batal', 'adm_products:all:0');
+  await ctx.reply(
+    '🔄 *Reset Kategori*\nMenggabungkan 19 kategori mentah TokoVoucher (Games, E-Money, dll) ke 9 kategori rapi ber-emoji. Produk tidak dihapus.\nLanjutkan?',
+    { parse_mode: 'Markdown', reply_markup: kb }
+  );
+});
+bot.callbackQuery('adm_kat_reset_yes', async (ctx) => {
+  if (!admin.isAdmin(ctx.from.id)) return;
+  await ctx.answerCallbackQuery({ text: 'Memproses...' });
+  try {
+    const { total, details } = await admin.resetKategoriMapping();
+    const msg = total === 0
+      ? '✅ Kategori sudah rapi, tidak ada yang diubah.'
+      : `✅ Reset selesai: ${total} produk.\n` + details.slice(0, 10).join('\n');
+    await ctx.reply(msg);
+    await admin.sendProductsAdmin(ctx, 0, 'all');
+  } catch (e) { await ctx.reply('Gagal reset: ' + e.message); }
 });
 bot.callbackQuery(/^adm_prod:(.+)$/, async (ctx) => {
   if (!admin.isAdmin(ctx.from.id)) return;
@@ -725,10 +777,32 @@ bot.on('message:text', async (ctx, next) => {
   if (text.startsWith('/')) return next();
   if (['🛒 Produk','📂 Kategori','💰 Saldo','➕ Topup','📜 Riwayat','❓ Bantuan','👑 Admin'].includes(text)) return next();
 
-  // 0. Mode admin input (tambah/kurang saldo, search)
+  // 0. Mode admin input (tambah/kurang saldo, search, tambah produk)
   if (ctx.session.adminState) {
     if (!admin.isAdmin(ctx.from.id)) { ctx.session.adminState = null; return next(); }
     const state = ctx.session.adminState;
+    if (state.action === 'addproduct') {
+      const parts = text.split('|').map(s => s.trim());
+      if (parts.length < 2) {
+        await ctx.reply('Format: `SKU | Nama | Kategori | Brand | HargaBeli | HargaJual`\nContoh: `tsel5k | Telkomsel 5.000 | 📱 Pulsa | Telkomsel | 5190 | 5990`', { parse_mode: 'Markdown' });
+        return;
+      }
+      const [sku, nama, kategori, brand, beliStr, jualStr] = parts;
+      const parseNum = (s) => s ? Number(String(s).replace(/[^\d]/g, '')) : NaN;
+      try {
+        const saved = await admin.addProductManual({
+          sku, nama,
+          kategori: kategori || '📦 Lainnya',
+          brand: brand || (state.provider === 'digiflazz' ? 'Digiflazz' : 'TokoVoucher'),
+          hargaBeli: parseNum(beliStr),
+          hargaJual: jualStr ? parseNum(jualStr) : NaN,
+          provider: state.provider,
+        });
+        ctx.session.adminState = null;
+        await ctx.reply(`✅ Produk tersimpan: ${saved.nama} (${saved.sku}) ${formatRupiah(saved.hargaJual)} [${saved.provider}]`);
+      } catch (e) { await ctx.reply('Gagal: ' + e.message); }
+      return;
+    }
     if (state.action === 'addsaldo' || state.action === 'subsaldo') {
       const parts = text.split(/\s+/);
       let targetId, nominalStr;
