@@ -69,24 +69,38 @@ async function createQris({ refId, amount, expiredAtUnix, buyerName, buyerPhone,
   let expiredType = 'minutes';
   if (expiredMinutes > 1440) { expired = Math.ceil(expiredMinutes / 60); expiredType = 'hours'; }
 
+  // iPaymu validasi ketat: phone harus nomor HP valid, email valid,
+  // notifyUrl harus https publik (bukan localhost).
+  // refId mengandung huruf (ORD/TOP + hex) → tidak valid sebagai email lokal,
+  // jadi pakai email dummy yang valid agar tidak 406.
+  const digits = String(buyerPhone || '').replace(/\D/g, '');
+  const safePhone = /^08\d{8,13}$/.test(digits) ? digits : '081200000001';
+  const safeEmail = 'buyer@ppob.local';
   const bodyObj = {
-    name: buyerName || 'PPOB Buyer',
-    phone: buyerPhone || '081200000001',
-    email: `${refId.toLowerCase()}@ppob.local`,
+    name: String(buyerName || 'PPOB Buyer').slice(0, 50),
+    phone: safePhone,
+    email: safeEmail,
     amount: Number(amount),
     notifyUrl: `${config.app.publicBaseUrl}/webhook/ipaymu`,
     expired,
     expiredType,
-    comments: `Pembayaran PPOB ${refId}`,
+    comments: `Pembayaran PPOB ${refId}`.slice(0, 100),
     referenceId: refId,
     paymentMethod: 'qris',
     paymentChannel: 'mpm',
-    product: [productName || 'Pembayaran PPOB'],
+    product: [String(productName || 'Pembayaran PPOB').slice(0, 50)],
     qty: [1],
     price: [Number(amount)],
   };
 
-  const data = await postApi({ path: '/api/v2/payment/direct', bodyObj });
+  let data;
+  try {
+    data = await postApi({ path: '/api/v2/payment/direct', bodyObj });
+  } catch (e) {
+    // 406 dari iPaymu biasanya validasi field (email/notifyUrl/phone) — tampilkan body agar jelas
+    const detail = e.response?.data ? JSON.stringify(e.response.data) : e.message;
+    throw new Error(`iPaymu 406/invalid request: ${detail}`);
+  }
 
   if (data.Status !== 200 || !data.Success || !data.Data) {
     throw new Error(`iPaymu gagal generate QRIS: ${data.Message || JSON.stringify(data)}`);
