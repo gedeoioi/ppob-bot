@@ -28,8 +28,8 @@ async function createTopup({ userId, amount }) {
 
   const res = await db.query(
     `INSERT INTO topups (ref_id, user_id, amount, kode_unik, total_bayar, status, gateway, expired_at)
-     VALUES ($1,$2,$3,$4,$5,'pending_payment','duitku',$6) RETURNING *`,
-    [refId, userId, nominal, kodeUnik, totalBayar, expiredAt]
+     VALUES ($1,$2,$3,$4,$5,'pending_payment',$6,$7) RETURNING *`,
+    [refId, userId, nominal, kodeUnik, totalBayar, payment.currentGateway(), expiredAt]
   );
   const topup = res.rows[0];
 
@@ -37,6 +37,7 @@ async function createTopup({ userId, amount }) {
     refId,
     amount: totalBayar,
     expiredAtUnix: Math.floor(expiredAt.getTime() / 1000),
+    productName: `Topup saldo ${nominal.toLocaleString('id-ID')}`,
   });
 
   await db.query('UPDATE topups SET gateway_ref = $1, qr_string = $2, updated_at = now() WHERE id = $3', [

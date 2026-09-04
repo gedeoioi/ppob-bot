@@ -9,6 +9,7 @@
     "dev": "nodemon src/index.js",
     "migrate": "node scripts/migrate.js",
     "test:webhook": "node scripts/test-webhook.js",
+    "test:ipaymu": "node scripts/test-ipaymu-webhook.js",
     "sync:products": "node scripts/sync-products.js",
     "sync:tokovoucher": "node scripts/sync-tokovoucher.js"
   },

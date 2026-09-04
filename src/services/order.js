@@ -43,19 +43,23 @@ async function createOrder({ userId, buyerSkuCode, customerNo }) {
   );
   const order = orderRes.rows[0];
 
+  const userRow = await db.query('SELECT telegram_id, full_name FROM users WHERE id = $1', [userId]);
   const qris = await payment.createQris({
     refId,
     amount: totalBayar,
     expiredAtUnix: Math.floor(expiredAt.getTime() / 1000),
+    buyerPhone: /^\d{8,20}$/.test(customerNo.replace(/[\s\-+]/g, '')) ? customerNo : undefined,
+    buyerName: userRow.rows[0]?.full_name || undefined,
+    productName: product.nama,
   });
 
   await db.query(
     `INSERT INTO payments (order_id, gateway, gateway_ref, qr_string, amount, status)
      VALUES ($1,$2,$3,$4,$5,'pending')`,
-    [order.id, config.payment.gateway, qris.gatewayRef, qris.qrString, totalBayar]
+    [order.id, payment.currentGateway(), qris.gatewayRef, qris.qrString, totalBayar]
   );
 
-  return { order, qrString: qris.qrString };
+  return { order, qrString: qris.qrString, paymentUrl: qris.paymentUrl || null };
 }
 
 /**

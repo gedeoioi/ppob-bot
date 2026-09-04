@@ -29,7 +29,10 @@ function validateProdSafety(cfg) {
   const errs = [];
   if (cfg.digiflazz.testing) errs.push('DIGIFLAZZ_TESTING harus false di production');
   if (cfg.payment.mock) errs.push('PAYMENT_MOCK harus false di production');
-  if (cfg.payment.duitku.mode !== 'production') errs.push('DUITKU_MODE harus production di production');
+  if (cfg.payment.gateway === 'duitku' && cfg.payment.duitku.mode !== 'production') errs.push('DUITKU_MODE harus production di production');
+  if (cfg.payment.gateway === 'ipaymu' && cfg.payment.ipaymu.mode !== 'production') errs.push('IPAYMU_MODE harus production di production');
+  if (cfg.payment.gateway === 'duitku' && (!cfg.payment.duitku.merchantCode || !cfg.payment.duitku.merchantKey)) errs.push('DUITKU_MERCHANT_CODE/KEY wajib diisi saat PAYMENT_GATEWAY=duitku');
+  if (cfg.payment.gateway === 'ipaymu' && (!cfg.payment.ipaymu.va || !cfg.payment.ipaymu.apiKey)) errs.push('IPAYMU_VA/API_KEY wajib diisi saat PAYMENT_GATEWAY=ipaymu');
   if (cfg.app.publicBaseUrl.includes('ngrok') || cfg.app.publicBaseUrl.includes('localhost')) {
     errs.push('PUBLIC_BASE_URL tidak boleh ngrok/localhost di production');
   }
@@ -81,16 +84,25 @@ const cfg = {
   })(),
 
   payment: {
-    gateway: optional('PAYMENT_GATEWAY', 'duitku'),
+    gateway: (() => {
+      const g = optional('PAYMENT_GATEWAY', 'duitku').toLowerCase();
+      if (!['duitku', 'ipaymu'].includes(g)) throw new Error('PAYMENT_GATEWAY harus duitku atau ipaymu');
+      return g;
+    })(),
     mock: optional('PAYMENT_MOCK', 'false') === 'true',
     duitku: {
       merchantCode: optional('PAYMENT_MOCK', 'false') === 'true'
         ? (optional('DUITKU_MERCHANT_CODE', 'MOCKCODE'))
-        : required('DUITKU_MERCHANT_CODE'),
+        : optional('DUITKU_MERCHANT_CODE', ''),
       merchantKey: optional('PAYMENT_MOCK', 'false') === 'true'
         ? (optional('DUITKU_MERCHANT_KEY', 'mock-secret-key'))
-        : required('DUITKU_MERCHANT_KEY'),
+        : optional('DUITKU_MERCHANT_KEY', ''),
       mode: optional('DUITKU_MODE', 'sandbox'), // sandbox | production
+    },
+    ipaymu: {
+      va: optional('IPAYMU_VA', ''),
+      apiKey: optional('IPAYMU_API_KEY', ''),
+      mode: optional('IPAYMU_MODE', 'sandbox'), // sandbox | production
     },
   },
 

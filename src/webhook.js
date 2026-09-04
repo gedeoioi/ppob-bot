@@ -170,6 +170,55 @@ function createWebhookApp({ onOrderSuccess, onOrderFailed } = {}) {
     res.send('Pembayaran diproses. Silakan kembali ke Telegram untuk melihat status transaksi.');
   });
 
+  // Webhook iPaymu — header X-Signature + X-Timestamp, body JSON/form
+  // referenceId/reference_id dipakai sebagai ref_id order/topup kita
+  async function handleIpaymuPaid({ refId }) {
+    if (refId && refId.startsWith('TOP')) {
+      const result = await topupService.handleTopupPaid({ refId });
+      if (!result.skipped && onTopupSuccess) await onTopupSuccess(result.topup, result.newSaldo);
+      else if (!result.skipped && onOrderSuccess) await onOrderSuccess({ ...result.topup, status: 'topup_success', ref_id: refId });
+      return result;
+    }
+    const result = await orderService.handlePaymentPaid({ refId });
+    if (!result.skipped && onOrderSuccess) await onOrderSuccess(result.order);
+    return result;
+  }
+
+  app.post('/webhook/ipaymu', webhookLimiter, async (req, res) => {
+    const body = req.body || {};
+    const signature = req.headers['x-signature'] || req.headers['X-Signature'];
+    const ipaymu = require('./services/ipaymu');
+    const isValid = ipaymu.verifyCallbackSignature(body, signature);
+    await ipaymu.logCallback({ refId: body.reference_id || body.referenceId, valid: isValid, payload: body });
+
+    if (!isValid) {
+      req.log.warn({ ip: req.ip }, '[webhook/ipaymu] invalid signature');
+      return res.status(400).json({ status: 'Invalid Signature' });
+    }
+
+    res.status(200).json({ status: 'OK' });
+
+    try {
+      const refId = body.reference_id || body.referenceId;
+      const status = String(body.status || '').toLowerCase();
+      const statusCode = Number(body.status_code ?? body.statusCode ?? NaN);
+      // sukses: status=berhasil ATAU status_code=1
+      const isSuccess = status === 'berhasil' || statusCode === 1;
+      if (!refId) {
+        req.log.warn('[webhook/ipaymu] missing reference_id');
+        return;
+      }
+      if (!isSuccess) {
+        req.log.info({ refId, status, statusCode }, '[webhook/ipaymu] callback non-sukses, diabaikan');
+        return;
+      }
+      await handleIpaymuPaid({ refId });
+    } catch (err) {
+      req.log.error({ err: err.message }, '[webhook/ipaymu] gagal proses callback');
+      if (onOrderFailed) await onOrderFailed(err);
+    }
+  });
+
   app.get('/healthz', (_req, res) => res.json({ ok: true, env: config.env, uptime: process.uptime() }));
 
   app.get('/readyz', async (_req, res) => {
