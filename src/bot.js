@@ -142,20 +142,13 @@ async function sendProdukPage(ctx, page = 0) {
 
   const keyboard = new InlineKeyboard();
   for (const [kategori, items] of sortedGroups) {
-    // Ganti prefix "──" dengan format yang sudah ada emoji dari kategori itu sendiri
     keyboard.text(`──── ${kategori} ────`, 'noop').row();
-    // Sort produk dalam kategori by harga termurah dulu agar rapi
-    items.sort((a,b) => Number(a.harga_jual) - Number(b.harga_jual));
-    for (let i = 0; i < items.length; i += 2) {
-      const a = items[i];
-      const b = items[i + 1];
-      const labelA = a.nama.length > 22 ? a.nama.slice(0, 20) + '…' : a.nama;
-      keyboard.text(`${labelA} ${formatRupiah(a.harga_jual)}`, `pilih_produk:${a.buyer_sku_code}`);
-      if (b) {
-        const labelB = b.nama.length > 22 ? b.nama.slice(0, 20) + '…' : b.nama;
-        keyboard.text(`${labelB} ${formatRupiah(b.harga_jual)}`, `pilih_produk:${b.buyer_sku_code}`);
-      }
-      keyboard.row();
+    // Rapi per nama produk (A-Z), 1 tombol per baris berisi nama saja.
+    // Harga TIDAK ditampilkan di tombol — muncul setelah user memilih produk.
+    items.sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+    for (const item of items) {
+      const label = item.nama.length > 32 ? item.nama.slice(0, 30) + '…' : item.nama;
+      keyboard.text(label, `pilih_produk:${item.buyer_sku_code}`).row();
     }
   }
 
@@ -170,8 +163,7 @@ async function sendProdukPage(ctx, page = 0) {
 
   const text =
     `🛒 *Daftar Produk* — hal ${page + 1}/${totalPages} (total ${total})\n` +
-    `Pilih produk di bawah, atau /kategori untuk filter per kategori.\n` +
-    `_Harga tertera sudah termasuk markup._`;
+    `Pilih nama produk di bawah untuk melihat harga, atau /kategori untuk filter per kategori.`;
 
   if (ctx.callbackQuery) {
     try {
@@ -218,24 +210,18 @@ async function sendKategoriMenu(ctx) {
 
 async function sendProdukByKategori(ctx, kategori) {
   const res = await db.query(
-    'SELECT buyer_sku_code, nama, harga_jual FROM products WHERE is_active = true AND kategori = $1 ORDER BY harga_jual ASC, nama ASC LIMIT 24',
+    'SELECT buyer_sku_code, nama FROM products WHERE is_active = true AND kategori = $1 ORDER BY nama ASC LIMIT 24',
     [kategori]
   );
   if (res.rows.length === 0) return ctx.reply(`Kategori "${kategori}" kosong.`);
   const kb = new InlineKeyboard();
-  for (let i = 0; i < res.rows.length; i += 2) {
-    const a = res.rows[i];
-    const b = res.rows[i + 1];
-    const la = a.nama.length > 20 ? a.nama.slice(0, 18) + '…' : a.nama;
-    kb.text(`${la} ${formatRupiah(a.harga_jual)}`, `pilih_produk:${a.buyer_sku_code}`);
-    if (b) {
-      const lb = b.nama.length > 20 ? b.nama.slice(0, 18) + '…' : b.nama;
-      kb.text(`${lb} ${formatRupiah(b.harga_jual)}`, `pilih_produk:${b.buyer_sku_code}`);
-    }
-    kb.row();
+  // 1 tombol per baris berisi nama produk saja (urutan A-Z)
+  for (const p of res.rows) {
+    const label = p.nama.length > 32 ? p.nama.slice(0, 30) + '…' : p.nama;
+    kb.text(label, `pilih_produk:${p.buyer_sku_code}`).row();
   }
   kb.text('⬅️ Kategori', 'show_kategori').text('⬅️ Semua', 'produk_page:0');
-  const text = `${escapeMarkdown(kategori)} — ${res.rows.length} produk (urut termurah)`;
+  const text = `${escapeMarkdown(kategori)} — ${res.rows.length} produk\nPilih nama produk untuk melihat harga.`;
   try { await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: kb }); await ctx.answerCallbackQuery(); } catch (_) {
     await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: kb });
   }
@@ -612,10 +598,33 @@ bot.callbackQuery('topup_custom', async (ctx) => {
 });
 
 bot.callbackQuery(/^pilih_produk:(.+)$/, async (ctx) => {
-  ctx.session.pendingSku = ctx.match[1];
+  const sku = ctx.match[1];
+  ctx.session.pendingSku = sku;
   ctx.session.pendingOrder = null;
   await ctx.answerCallbackQuery();
-  await ctx.reply('Masukkan nomor tujuan (HP/ID pelanggan, 8-20 digit angka).\nKetik /batal untuk batalkan.');
+
+  // Tampilkan harga saat user memilih produk (tombol hanya berisi nama)
+  let detail = '';
+  try {
+    const r = await db.query(
+      'SELECT nama, harga_jual, harga_beli, kategori, brand FROM products WHERE buyer_sku_code = $1',
+      [sku]
+    );
+    if (r.rows.length > 0) {
+      const p = r.rows[0];
+      detail =
+        `📦 *${escapeMarkdown(p.nama)}*\n` +
+        `Harga: *${formatRupiah(p.harga_jual)}*\n` +
+        (p.kategori ? `Kategori: ${escapeMarkdown(p.kategori)}\n` : '') +
+        (p.brand ? `Brand: ${escapeMarkdown(p.brand)}\n` : '') +
+        `\n`;
+    }
+  } catch (_) {}
+
+  await ctx.reply(
+    `${detail}Masukkan nomor tujuan (HP/ID pelanggan, 8-20 digit angka).\nKetik /batal untuk batalkan.`,
+    { parse_mode: 'Markdown' }
+  );
 });
 
 // Pilihan metode bayar setelah input nomor
