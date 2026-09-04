@@ -5,7 +5,8 @@ RUN apk add --no-cache dumb-init
 FROM base AS deps
 COPY package.json ./
 COPY package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev --ignore-scripts; else npm install --omit=dev --ignore-scripts; fi
+RUN --mount=type=cache,target=/root/.npm \
+    if [ -f package-lock.json ]; then npm ci --omit=dev --ignore-scripts --no-audit --no-fund --prefer-offline; else npm install --omit=dev --ignore-scripts --no-audit --no-fund --prefer-offline; fi
 
 FROM base AS runner
 ENV NODE_ENV=production
